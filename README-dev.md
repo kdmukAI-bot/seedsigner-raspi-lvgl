@@ -21,3 +21,16 @@ python -m pytest
   - `clear_result_queue()`
   - `poll_for_result()`
 - Deterministic placeholder event behavior implemented.
+
+## Pi hardware smoke test (display)
+
+Run this on Pi target hardware (with `RPi.GPIO` and `spidev` installed):
+
+```bash
+python scripts/pi_display_smoke.py --hold-seconds 1.5
+```
+
+Expected visual sequence:
+1. White frame
+2. Black frame
+3. Checkerboard frame
