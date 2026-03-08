@@ -14,23 +14,11 @@ pip install -U pip pytest
 python -m pytest
 ```
 
-## Current M4 status (vertical slice)
+## Current direction status
 
-- API surface unchanged:
-  - `button_list_screen(cfg_dict)`
-  - `clear_result_queue()`
-  - `poll_for_result()`
-- `button_list_screen` now runs an input-driven loop via Pi input backend.
-- Supported `button_list` item shapes:
-  - strings
-  - `(label, value)` tuples
-  - dicts containing `label`
-- Current result tuples:
-  - Select: `("button_selected", index, label)`
-  - Back (when `top_nav.show_back_button=True` + `KEY1`): `("back", -1, "back")`
-- Current limitations:
-  - Rendering is still stubbed/minimal (focus is input->result behavior)
-  - Top-nav focus navigation (UP into top-nav / DOWN back) not yet implemented
+- Temporary Python `button_list_screen` behavior shim was retired.
+- Target implementation path is compiled C/C++ LVGL screens exposed through Python bindings.
+- Until compiled bindings are wired, calling `button_list_screen` from Python package raises `NotImplementedError` by design.
 
 ## Pi hardware smoke test (display)
 

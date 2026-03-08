@@ -2,10 +2,10 @@
 
 Raspberry Pi Zero target project for SeedSigner-style LVGL UI.
 
-## Scope (initial)
+## Scope (reworked)
 - New standalone project under `dev/`.
-- Do **not** modify `seedsigner-c-modules` yet.
-- Focus on platform layer for Pi Zero + SPI display + joystick input.
+- Primary path: compile and run existing SeedSigner C/C++ LVGL screens on Pi Zero.
+- Expose compiled screens through Python bindings with MicroPython-parity signatures.
 
 ## Input model (current decision)
 - No touchscreen.
@@ -31,10 +31,11 @@ Raspberry Pi Zero target project for SeedSigner-style LVGL UI.
 - Scenario reference: `/home/keith/.openclaw/workspace-mp-project-lead/dev/seedsigner-micropython-builder/sources/seedsigner-c-modules/tests/screenshot_generator/scenarios.json`
 - Upstream ST7789 driver: https://github.com/SeedSigner/seedsigner/blob/dev/src/seedsigner/hardware/displays/ST7789.py
 - Upstream buttons input model: https://github.com/SeedSigner/seedsigner/blob/dev/src/seedsigner/hardware/buttons.py
+- Production Pi OS baseline (Buildroot): https://github.com/SeedSigner/seedsigner-os
 - Extracted Pi GPIO/timing profile for this project: `docs/hardware-profile.md`
 
-## Next steps
-1. Add target architecture doc (`docs/architecture.md`).
-2. Define navigation contract (`docs/navigation-contract.md`).
-3. Define font strategy for multiple resolutions (`docs/fonts.md`).
-4. Capture baseline performance from current Python display path (`docs/perf-baseline.md`).
+## Next steps (re-prioritized)
+1. Build `docs/porting-boundary.md` to map portable C/C++ screen core vs ESP32-specific code.
+2. Add Docker Pi cross-build skeleton and matching GitHub Actions entrypoint.
+3. Link compiled screen core into a minimal CPython binding (`seedsigner_lvgl`) for one screen.
+4. Demonstrate `button_list_screen` PoC on real Pi Zero hardware via Python binding + poll queue.
