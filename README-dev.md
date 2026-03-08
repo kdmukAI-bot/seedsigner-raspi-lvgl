@@ -14,6 +14,39 @@ pip install -U pip pytest
 python -m pytest
 ```
 
+## Stage B Docker build skeleton
+
+Build the portable screen-core sanity target through Docker (same entrypoint local + CI):
+
+```bash
+./scripts/build_in_docker.sh
+```
+
+Build logs are written to a consistent directory:
+- `logs/stageb/`
+- filename format starts with UTC timestamp and includes target:
+  - `<YYYYmmdd-HHMMSS>_stageb_docker_driver_<target>.log`
+  - `<YYYYmmdd-HHMMSS>_stageb_docker_<target>.log`
+  - `<YYYYmmdd-HHMMSS>_stageb_host_<target>.log`
+
+Notes:
+- Expects sibling repo at `../seedsigner-micropython-builder` by default.
+- Override paths via env vars if needed:
+  - `WS_ROOT`
+  - `SEEDSIGNER_C_MODULES_DIR`
+  - `LVGL_ROOT`
+  - `RUN_TS` (optional fixed run timestamp for grouped logs)
+  - `TARGET_ARCH` (`host` default, `armv6` for Pi Zero cross build)
+
+Examples:
+```bash
+# host build in docker
+TARGET_ARCH=host ./scripts/build_in_docker.sh
+
+# Pi Zero architecture cross-build in docker
+TARGET_ARCH=armv6 ./scripts/build_in_docker.sh
+```
+
 ## Current direction status
 
 - Temporary Python `button_list_screen` behavior shim was retired.
