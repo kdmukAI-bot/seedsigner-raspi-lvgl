@@ -14,13 +14,23 @@ pip install -U pip pytest
 python -m pytest
 ```
 
-## Current M1 status
+## Current M4 status (vertical slice)
 
-- API parity stubs in `seedsigner_lvgl`:
+- API surface unchanged:
   - `button_list_screen(cfg_dict)`
   - `clear_result_queue()`
   - `poll_for_result()`
-- Deterministic placeholder event behavior implemented.
+- `button_list_screen` now runs an input-driven loop via Pi input backend.
+- Supported `button_list` item shapes:
+  - strings
+  - `(label, value)` tuples
+  - dicts containing `label`
+- Current result tuples:
+  - Select: `("button_selected", index, label)`
+  - Back (when `top_nav.show_back_button=True` + `KEY1`): `("back", -1, "back")`
+- Current limitations:
+  - Rendering is still stubbed/minimal (focus is input->result behavior)
+  - Top-nav focus navigation (UP into top-nav / DOWN back) not yet implemented
 
 ## Pi hardware smoke test (display)
 
