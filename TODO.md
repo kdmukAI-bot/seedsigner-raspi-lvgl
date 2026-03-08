@@ -29,9 +29,10 @@ Deliverable: buildable screen-core target decoupled from ESP32 runtime specifics
 3. Add same Docker entrypoint to GitHub Actions.
 4. Align image/toolchain assumptions with SeedSigner production Pi OS baseline (`seedsigner-os`, Buildroot).
 5. Validate against dev Pi OS baseline (Raspberry Pi OS build instructions) and track any drift.
-6. Pin toolchain + LVGL dependency versions for reproducibility.
+6. Pin toolchain + LVGL dependency versions for reproducibility in `versions.lock.toml`.
+7. Enable ccache in builder images/scripts with clear/show/disable controls.
 
-Deliverable: deterministic local+CI build path for Pi artifacts with explicit dev-vs-production OS parity checks.
+Deliverable: deterministic local+CI build path for Pi artifacts with explicit dev-vs-production OS parity checks and pinned dependency lock.
 
 ## Stage C — Pi platform backend (native runtime)
 1. Display backend:

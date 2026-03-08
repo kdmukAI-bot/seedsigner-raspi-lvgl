@@ -1,0 +1,57 @@
+# syntax=docker/dockerfile:1
+FROM --platform=linux/arm/v6 balenalib/rpi-raspbian:bullseye
+
+ARG PYTHON_VERSION=3.10.10
+ARG PY_PREFIX=/opt/python
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PATH="${PY_PREFIX}/bin:${PATH}"
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    bash \
+    ca-certificates \
+    wget \
+    xz-utils \
+    build-essential \
+    file \
+    git \
+    pkg-config \
+    ccache \
+    libssl-dev \
+    zlib1g-dev \
+    libbz2-dev \
+    libreadline-dev \
+    libsqlite3-dev \
+    libffi-dev \
+    liblzma-dev \
+    tk-dev \
+    uuid-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /tmp
+RUN wget -q https://www.python.org/ftp/python/${PYTHON_VERSION}/Python-${PYTHON_VERSION}.tgz \
+    && tar -xzf Python-${PYTHON_VERSION}.tgz
+
+WORKDIR /tmp/Python-${PYTHON_VERSION}
+RUN ./configure \
+      --prefix=${PY_PREFIX} \
+      --enable-optimizations \
+      --with-ensurepip=install \
+    && make -j"$(nproc)" \
+    && make install
+
+WORKDIR /workspace
+
+# Emit runtime ABI facts at image build time for traceability
+RUN python3 - <<'PY'
+import json,platform,sysconfig
+print(json.dumps({
+  'python_version': platform.python_version(),
+  'machine': platform.machine(),
+  'soabi': sysconfig.get_config_var('SOABI'),
+  'ext_suffix': sysconfig.get_config_var('EXT_SUFFIX'),
+  'include_py': sysconfig.get_config_var('INCLUDEPY'),
+  'libdir': sysconfig.get_config_var('LIBDIR'),
+  'ldlibrary': sysconfig.get_config_var('LDLIBRARY'),
+}, indent=2))
+PY

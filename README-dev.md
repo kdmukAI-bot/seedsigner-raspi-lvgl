@@ -67,6 +67,22 @@ Stage C/E logs:
 - `<YYYYmmdd-HHMMSS>_staged_<mode>_<target>.log`
 - `<YYYYmmdd-HHMMSS>_staged_docker_driver_<target>.log`
 
+## ARMv6 Python base image (versioned)
+
+Initial priority is Python 3.10 for dev hardware.
+
+Build local ARMv6 Python base image (source-built Python):
+
+```bash
+PYTHON_VERSION=3.10.10 PY_SERIES=py310 ./scripts/build_python_armv6_base_in_docker.sh
+```
+
+Logs:
+- `logs/base-image/`
+- `<YYYYmmdd-HHMMSS>_python-armv6-base_<pyseries>.log`
+
+This path is parameterized for future versions (e.g., py311/py312).
+
 ## Stage F armv6-cpython wiring
 
 Run Stage F host path:
@@ -87,10 +103,23 @@ Stage F logs:
 - `<YYYYmmdd-HHMMSS>_stagef_docker_driver_<target>.log`
 
 Stage F environment knobs:
+- `LOCK_FILE` (default `versions.lock.toml`, consumed by scripts)
 - `ABI_JSON` (default `docs/abi/dev-pi-abi.json`)
 - `PYTHON_TARGET_INCLUDE` (required if target Python headers are not present in container)
 - `PYTHON_TARGET_LIBDIR` (optional)
 - `PYTHON_TARGET_LDLIBRARY` (optional)
+
+Alternative (emulated ARM container) when cross headers/sysroot are unavailable:
+
+```bash
+./scripts/build_stagef_emu_in_docker.sh
+```
+
+Notes:
+- Uses QEMU/binfmt + `--platform linux/arm/v7` with Python 3.10 bullseye base.
+- Build step now forces ARMv6 codegen flags (`-march=armv6zk -mtune=arm1176jzf-s -marm -mfpu=vfp -mfloat-abi=hard`).
+- Script verifies `readelf -A` includes ARMv6 CPU arch attribute and fails otherwise.
+- Slower than native/cross builds; still validate final artifacts on real Pi.
 
 Current limitations:
 - armv6-cpython build wiring is in place, but successful cross-build still depends on providing target Python headers/sysroot paths.

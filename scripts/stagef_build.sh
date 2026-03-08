@@ -31,9 +31,14 @@ if [[ "${TARGET_ARCH}" != "armv6-cpython" ]]; then
 fi
 
 ABI_JSON="${ABI_JSON:-${ROOT_DIR}/docs/abi/dev-pi-abi.json}"
+LOCK_FILE="${LOCK_FILE:-${ROOT_DIR}/versions.lock.toml}"
 if [[ ! -f "${ABI_JSON}" ]]; then
   echo "ERROR: ABI_JSON not found: ${ABI_JSON}" >&2
   exit 3
+fi
+if [[ ! -f "${LOCK_FILE}" ]]; then
+  echo "ERROR: LOCK_FILE not found: ${LOCK_FILE}" >&2
+  exit 4
 fi
 
 # Pull ABI fields from JSON (dev target is current priority).
@@ -65,8 +70,26 @@ PY
 PYTHON_TARGET_INCLUDE="${PYTHON_TARGET_INCLUDE:-${PYTHON_TARGET_INCLUDE_DEFAULT}}"
 if [[ -z "${PYTHON_TARGET_INCLUDE}" ]]; then
   echo "ERROR: PYTHON_TARGET_INCLUDE unresolved (ABI JSON missing include_py?)" >&2
-  exit 4
+  exit 5
 fi
+
+python3 - <<'PY' "${ABI_JSON}" "${LOCK_FILE}"
+import json,sys
+try:
+    import tomllib
+except Exception:
+    import tomli as tomllib
+abi_json,lock_file=sys.argv[1:3]
+with open(abi_json,'r',encoding='utf-8') as f:
+    abi=json.load(f)
+with open(lock_file,'rb') as f:
+    lock=tomllib.load(f)
+if abi.get('soabi') != lock.get('target_abi',{}).get('python_soabi'):
+    raise SystemExit('ABI JSON and versions.lock.toml SOABI mismatch')
+if abi.get('ext_suffix') != lock.get('target_abi',{}).get('python_ext_suffix'):
+    raise SystemExit('ABI JSON and versions.lock.toml EXT_SUFFIX mismatch')
+print('[stagef] lock/abi compatibility check OK')
+PY
 
 echo "[stagef] abi_json=${ABI_JSON}"
 echo "[stagef] python_target_include=${PYTHON_TARGET_INCLUDE}"

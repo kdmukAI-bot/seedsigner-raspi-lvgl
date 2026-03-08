@@ -1,0 +1,17 @@
+[target_abi]
+python_soabi = "cpython-310-arm-linux-gnueabihf"
+python_ext_suffix = ".cpython-310-arm-linux-gnueabihf.so"
+
+[toolchain]
+arch = "armv6zk"
+tune = "arm1176jzf-s"
+float_abi = "hard"
+fpu = "vfp"
+
+[python]
+py310 = "3.10.10"
+py311 = "3.11.x"
+py312 = "3.12.x"
+
+[build_tools]
+ccache = "required"
