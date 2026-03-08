@@ -100,11 +100,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          BASE="ghcr.io/${{ github.repository_owner }}/seedsigner-raspi-lvgl/python-armv6"
+          OWNER_LC="$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+          BASE="ghcr.io/${OWNER_LC}/seedsigner-raspi-lvgl/python-armv6"
           TAG_SERIES="${BASE}:${{ steps.cfg.outputs.py_series }}"
           TAG_SHA="${BASE}:${{ steps.cfg.outputs.py_series }}-${GITHUB_SHA}"
-          echo "tag_series=${TAG_SERIES}" >> "$GITHUB_OUTPUT"
-          echo "tag_sha=${TAG_SHA}" >> "$GITHUB_OUTPUT"
+          {
+            echo "tag_series=${TAG_SERIES}"
+            echo "tag_sha=${TAG_SHA}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Build and (optionally) push image
         uses: docker/build-push-action@v6
