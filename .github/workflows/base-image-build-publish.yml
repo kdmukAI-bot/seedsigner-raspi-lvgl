@@ -3,24 +3,15 @@ name: base-image-build-publish
 on:
   workflow_dispatch:
     inputs:
-      python_version:
-        description: "Python version to bake into ARMv6 base image"
+      python_major:
+        description: "Python major/minor line to target"
         required: true
         type: choice
         options:
-          - "3.10.10"
-          - "3.11.9"
-          - "3.12.3"
-        default: "3.10.10"
-      py_series:
-        description: "Python ABI series tag"
-        required: true
-        type: choice
-        options:
-          - "py310"
-          - "py311"
-          - "py312"
-        default: "py310"
+          - "3.10"
+          - "3.11"
+          - "3.12"
+        default: "3.10"
       push:
         description: "Push built image to GHCR"
         required: true
@@ -41,13 +32,51 @@ permissions:
 jobs:
   build-publish-armv6-base:
     runs-on: ubuntu-latest
-    env:
-      PYTHON_VERSION: ${{ inputs.python_version || '3.10.10' }}
-      PY_SERIES: ${{ inputs.py_series || 'py310' }}
-      DO_PUSH: ${{ inputs.push || false }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Resolve build inputs
+        id: cfg
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            PY_MAJOR='${{ github.event.inputs.python_major }}'
+            DO_PUSH='${{ github.event.inputs.push }}'
+          else
+            PY_MAJOR='3.10'
+            DO_PUSH='false'
+          fi
+
+          case "${PY_MAJOR}" in
+            3.10)
+              PY_VERSION='3.10.10'
+              PY_SERIES='py310'
+              EXPECTED_SOABI='cpython-310-arm-linux-gnueabihf'
+              ;;
+            3.11)
+              PY_VERSION='3.11.9'
+              PY_SERIES='py311'
+              EXPECTED_SOABI='cpython-311-arm-linux-gnueabihf'
+              ;;
+            3.12)
+              PY_VERSION='3.12.3'
+              PY_SERIES='py312'
+              EXPECTED_SOABI='cpython-312-arm-linux-gnueabihf'
+              ;;
+            *)
+              echo "Unsupported python_major: ${PY_MAJOR}" >&2
+              exit 2
+              ;;
+          esac
+
+          echo "python_major=${PY_MAJOR}" >> "$GITHUB_OUTPUT"
+          echo "python_version=${PY_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "py_series=${PY_SERIES}" >> "$GITHUB_OUTPUT"
+          echo "expected_soabi=${EXPECTED_SOABI}" >> "$GITHUB_OUTPUT"
+          echo "do_push=${DO_PUSH}" >> "$GITHUB_OUTPUT"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -56,7 +85,7 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to GHCR
-        if: ${{ env.DO_PUSH == 'true' }}
+        if: ${{ steps.cfg.outputs.do_push == 'true' }}
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -65,11 +94,12 @@ jobs:
 
       - name: Define image tags
         id: tags
+        shell: bash
         run: |
           set -euo pipefail
           BASE="ghcr.io/kdmukai/seedsigner-raspi-lvgl/python-armv6"
-          TAG_SERIES="${BASE}:${PY_SERIES}"
-          TAG_SHA="${BASE}:${PY_SERIES}-${GITHUB_SHA}"
+          TAG_SERIES="${BASE}:${{ steps.cfg.outputs.py_series }}"
+          TAG_SHA="${BASE}:${{ steps.cfg.outputs.py_series }}-${GITHUB_SHA}"
           echo "tag_series=${TAG_SERIES}" >> "$GITHUB_OUTPUT"
           echo "tag_sha=${TAG_SHA}" >> "$GITHUB_OUTPUT"
 
@@ -79,23 +109,32 @@ jobs:
           context: .
           file: docker/Dockerfile.python-armv6-base
           platforms: linux/arm/v6
-          push: ${{ env.DO_PUSH == 'true' }}
+          push: ${{ steps.cfg.outputs.do_push == 'true' }}
           tags: |
             ${{ steps.tags.outputs.tag_series }}
             ${{ steps.tags.outputs.tag_sha }}
           build-args: |
-            PYTHON_VERSION=${{ env.PYTHON_VERSION }}
+            PYTHON_VERSION=${{ steps.cfg.outputs.python_version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Build local smoke image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.python-armv6-base
+          platforms: linux/arm/v6
+          push: false
+          load: true
+          tags: local/stagef-armv6-smoke:${{ github.run_id }}
+          build-args: |
+            PYTHON_VERSION=${{ steps.cfg.outputs.python_version }}
+
       - name: Smoke run (QEMU armv6)
+        shell: bash
         run: |
           set -euo pipefail
-          IMAGE="${{ steps.tags.outputs.tag_series }}"
-          docker pull "$IMAGE" >/dev/null 2>&1 || true
-          if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
-            IMAGE="${{ steps.tags.outputs.tag_sha }}"
-          fi
+          IMAGE="local/stagef-armv6-smoke:${{ github.run_id }}"
           docker run --rm --platform linux/arm/v6 "$IMAGE" \
             python3 - <<'PY' > abi-smoke.json
 import json
@@ -114,30 +153,18 @@ PY
           cat abi-smoke.json
 
           python3 - <<'PY'
-import json
-import sys
-
-with open('abi-smoke.json', 'r', encoding='utf-8') as f:
-    data = json.load(f)
-
-machine = (data.get('platform_machine') or '').lower()
-soabi = data.get('soabi') or ''
-py_series = '${{ env.PY_SERIES }}'
-
+import json,sys
+with open('abi-smoke.json','r',encoding='utf-8') as f:
+    d=json.load(f)
+machine=(d.get('platform_machine') or '').lower()
+soabi=d.get('soabi') or ''
+expected='${{ steps.cfg.outputs.expected_soabi }}'
 if 'armv6' not in machine:
     print(f"ERROR: expected armv6 machine, got: {machine}")
     sys.exit(2)
-
-expected = {
-    'py310': 'cpython-310-arm-linux-gnueabihf',
-    'py311': 'cpython-311-arm-linux-gnueabihf',
-    'py312': 'cpython-312-arm-linux-gnueabihf',
-}[py_series]
-
 if expected not in soabi:
     print(f"ERROR: expected SOABI marker {expected}, got: {soabi}")
     sys.exit(3)
-
 print('ABI smoke checks passed')
 PY
 
