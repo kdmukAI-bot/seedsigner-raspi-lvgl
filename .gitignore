@@ -2,6 +2,7 @@ __pycache__/
 *.py[cod]
 .venv/
 .venv-stagec/
+.venv-stagef-emu/
 .pytest_cache/
 build/
 logs/

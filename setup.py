@@ -25,7 +25,23 @@ if not (SEEDSIGNER_DIR / "seedsigner.cpp").exists():
 if not (LVGL_ROOT / "lvgl.h").exists():
     raise RuntimeError(f"Missing lvgl.h under {LVGL_ROOT}")
 
-lvgl_sources = glob.glob(str(LVGL_ROOT / "src" / "**" / "*.c"), recursive=True)
+lvgl_sources_all = glob.glob(str(LVGL_ROOT / "src" / "**" / "*.c"), recursive=True)
+
+# Exclude architecture/accelerator-specific backends that can force higher CPU attrs
+# and are not needed for current Pi Zero portability path.
+EXCLUDE_SUBSTRINGS = [
+    "/src/draw/arm2d/",
+    "/src/draw/nxp/",
+    "/src/draw/renesas/",
+    "/src/draw/swm341_dma2d/",
+    "/src/draw/stm32_dma2d/",
+    "/src/draw/sdl/",
+]
+
+lvgl_sources = [
+    s for s in lvgl_sources_all
+    if not any(ex in s for ex in EXCLUDE_SUBSTRINGS)
+]
 
 font_sources = [
     "opensans_regular_17_4bpp.c",
@@ -48,6 +64,7 @@ font_sources = [
 font_paths = [str(SEEDSIGNER_DIR / "fonts" / f) for f in font_sources]
 
 stagef_cross = os.environ.get("STAGEF_CROSS", "0") == "1"
+stagef_armv6_force = os.environ.get("STAGEF_ARMV6_FORCE", "0") == "1"
 python_target_include = os.environ.get("PYTHON_TARGET_INCLUDE", "").strip()
 python_target_libdir = os.environ.get("PYTHON_TARGET_LIBDIR", "").strip()
 python_target_ldlibrary = os.environ.get("PYTHON_TARGET_LDLIBRARY", "").strip()
@@ -59,6 +76,15 @@ include_dirs = [
 ]
 
 extra_link_args: list[str] = []
+extra_compile_args: list[str] = ["-std=c++17"]
+if stagef_armv6_force:
+    extra_compile_args.extend([
+        "-march=armv6zk",
+        "-mtune=arm1176jzf-s",
+        "-marm",
+        "-mfpu=vfp",
+        "-mfloat-abi=hard",
+    ])
 if stagef_cross and python_target_include:
     include_dirs.insert(0, python_target_include)
 if stagef_cross and python_target_libdir:
@@ -80,7 +106,7 @@ ext_modules = [
         ],
         include_dirs=include_dirs,
         define_macros=[("LV_CONF_SKIP", "1")],
-        extra_compile_args=["-std=c++17"],
+        extra_compile_args=extra_compile_args,
         extra_link_args=extra_link_args,
         language="c++",
     )
