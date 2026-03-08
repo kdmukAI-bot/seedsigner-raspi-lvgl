@@ -1,0 +1,19 @@
+{
+  "byteorder": "little",
+  "config_args": "'--enable-optimizations'",
+  "executable": "/usr/bin/python",
+  "ext_suffix": ".cpython-310-arm-linux-gnueabihf.so",
+  "implementation": "CPython",
+  "include_py": "/usr/local/include/python3.10",
+  "ldd_version": "ldd (Debian GLIBC 2.28-10+rpi1) 2.28\nCopyright (C) 2018 Free Software Foundation, Inc.\nThis is free software; see the source for copying conditions. There is NO\nwarranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\nWritten by Roland McGrath and Ulrich Drepper.",
+  "ldlibrary": "libpython3.10.a",
+  "libdir": "/usr/local/lib",
+  "maxsize": 2147483647,
+  "multiarch": "arm-linux-gnueabihf",
+  "platform": "Linux-5.10.17+-armv6l-with-glibc2.28",
+  "platform_machine": "armv6l",
+  "platinclude": null,
+  "python_version": "3.10.10 (main, Nov 18 2023, 15:34:21) [GCC 8.3.0]",
+  "soabi": "cpython-310-arm-linux-gnueabihf",
+  "uname": "Linux seedsigner 5.10.17+ #1414 Fri Apr 30 13:16:27 BST 2021 armv6l GNU/Linux"
+}
