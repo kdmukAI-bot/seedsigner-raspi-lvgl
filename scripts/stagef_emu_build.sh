@@ -15,10 +15,19 @@ echo "[stagef-emu] log_file=${LOG_FILE}"
 ABI_JSON="${ABI_JSON:-${ROOT_DIR}/docs/abi/dev-pi-abi.json}"
 LOCK_FILE="${LOCK_FILE:-${ROOT_DIR}/versions.lock.toml}"
 
-# Python 3.10 does not include tomllib; install lightweight parser for lock read.
-python3 -m pip install --disable-pip-version-check -q tomli
+PYTHON_BIN="$(command -v python3 || true)"
+if [[ -z "${PYTHON_BIN}" && -x /opt/python/bin/python3 ]]; then
+  PYTHON_BIN="/opt/python/bin/python3"
+fi
+if [[ -z "${PYTHON_BIN}" ]]; then
+  echo "ERROR: python3 not found in container" >&2
+  exit 10
+fi
 
-python3 - <<'PY' "${ABI_JSON}" "${LOCK_FILE}"
+# Python 3.10 does not include tomllib; install lightweight parser for lock read.
+"${PYTHON_BIN}" -m pip install --disable-pip-version-check -q tomli
+
+"${PYTHON_BIN}" - <<'PY' "${ABI_JSON}" "${LOCK_FILE}"
 import json, platform, sysconfig, sys
 try:
     import tomllib
@@ -65,8 +74,18 @@ if not all([arch, tune, fpu, float_abi]):
 print('[stagef-emu] lock toolchain OK')
 PY
 
+# Temporary dev-OS compatibility enforcement:
+# prefer older GCC toolchain when available to avoid newer GLIBCXX symbol requirements.
+if command -v gcc-8 >/dev/null 2>&1 && command -v g++-8 >/dev/null 2>&1; then
+  export CC=gcc-8
+  export CXX=g++-8
+  export LDSHARED="g++-8 -shared"
+  export CCACHE_DISABLE=1
+  echo "[stagef-emu] using gcc-8/g++-8 compatibility mode (temporary)"
+fi
+
 # Force Pi Zero-compatible ARMv6 code generation from lock values.
-ARCH="$(python3 - <<'PY' "${LOCK_FILE}"
+ARCH="$("${PYTHON_BIN}" - <<'PY' "${LOCK_FILE}"
 try:
     import tomllib
 except Exception:
@@ -77,7 +96,7 @@ with open(sys.argv[1], 'rb') as f:
 print(lock['toolchain']['arch'])
 PY
 )"
-TUNE="$(python3 - <<'PY' "${LOCK_FILE}"
+TUNE="$("${PYTHON_BIN}" - <<'PY' "${LOCK_FILE}"
 try:
     import tomllib
 except Exception:
@@ -88,7 +107,7 @@ with open(sys.argv[1], 'rb') as f:
 print(lock['toolchain']['tune'])
 PY
 )"
-FPU="$(python3 - <<'PY' "${LOCK_FILE}"
+FPU="$("${PYTHON_BIN}" - <<'PY' "${LOCK_FILE}"
 try:
     import tomllib
 except Exception:
@@ -99,7 +118,7 @@ with open(sys.argv[1], 'rb') as f:
 print(lock['toolchain']['fpu'])
 PY
 )"
-FLOAT_ABI="$(python3 - <<'PY' "${LOCK_FILE}"
+FLOAT_ABI="$("${PYTHON_BIN}" - <<'PY' "${LOCK_FILE}"
 try:
     import tomllib
 except Exception:
@@ -117,7 +136,7 @@ export STAGEF_ARMV6_FORCE=1
 
 VENV_DIR="${ROOT_DIR}/.venv-stagef-emu"
 rm -rf "${VENV_DIR}"
-python3 -m venv "${VENV_DIR}"
+"${PYTHON_BIN}" -m venv "${VENV_DIR}"
 # shellcheck disable=SC1091
 source "${VENV_DIR}/bin/activate"
 python -m pip install -U pip setuptools wheel pytest
@@ -139,7 +158,7 @@ fi
 
 if [[ "${ART}" != *"${target_ext_suffix:-}" ]]; then
   # target_ext_suffix is not a shell var; verify using python to avoid drift.
-  python3 - <<'PY' "${ABI_JSON}" "${ART}"
+  "${PYTHON_BIN}" - <<'PY' "${ABI_JSON}" "${ART}"
 import json,os,sys
 abi_json,art=sys.argv[1:3]
 with open(abi_json,'r',encoding='utf-8') as f:
