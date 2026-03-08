@@ -30,6 +30,8 @@ Run this on Pi target hardware (with `RPi.GPIO` and `spidev` installed):
 python scripts/pi_display_smoke.py --hold-seconds 1.5
 ```
 
+(If you prefer explicit pathing: `PYTHONPATH=src python scripts/pi_display_smoke.py`)
+
 Expected visual sequence:
 1. White frame
 2. Black frame
