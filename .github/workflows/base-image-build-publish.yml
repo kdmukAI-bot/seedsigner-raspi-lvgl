@@ -102,8 +102,8 @@ jobs:
           set -euo pipefail
           OWNER_LC="$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
           BASE="ghcr.io/${OWNER_LC}/seedsigner-raspi-lvgl/python-armv6"
-          TAG_SERIES="${BASE}:${{ steps.cfg.outputs.py_series }}"
-          TAG_SHA="${BASE}:${{ steps.cfg.outputs.py_series }}-${GITHUB_SHA}"
+          TAG_SERIES="${BASE}:${{ steps.cfg.outputs.py_series }}-dev"
+          TAG_SHA="${BASE}:${{ steps.cfg.outputs.py_series }}-dev-${GITHUB_SHA}"
           {
             echo "tag_series=${TAG_SERIES}"
             echo "tag_sha=${TAG_SHA}"

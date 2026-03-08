@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WS_ROOT="${WS_ROOT:-$(cd "${ROOT_DIR}/../.." && pwd)}"
-IMAGE_TAG="${IMAGE_TAG:-ghcr.io/${GHCR_OWNER:-kdmukai-bot}/seedsigner-raspi-lvgl/python-armv6:py310}"
+IMAGE_TAG="${IMAGE_TAG:-ghcr.io/${GHCR_OWNER:-kdmukai-bot}/seedsigner-raspi-lvgl/python-armv6:py310-dev}"
 PLATFORM="${PLATFORM:-linux/arm/v6}"
 
 RUN_TS="${RUN_TS:-$(date -u +%Y%m%d-%H%M%S)}"
