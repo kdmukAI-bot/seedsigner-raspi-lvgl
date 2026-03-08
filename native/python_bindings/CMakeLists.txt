@@ -24,7 +24,7 @@ if(STAGEC_NO_PYTHON)
 else()
   find_package(Python3 COMPONENTS Interpreter Development.Module REQUIRED)
 
-  add_library(seedsigner_lvgl_native MODULE module.c)
+  add_library(seedsigner_lvgl_native MODULE module.c stage_d_bridge.c)
   set_target_properties(seedsigner_lvgl_native PROPERTIES
     PREFIX ""
     OUTPUT_NAME "seedsigner_lvgl_native"
