@@ -97,6 +97,18 @@ Run Stage F Docker armv6-cpython wiring:
 TARGET_ARCH=armv6-cpython ./scripts/build_stagef_in_docker.sh
 ```
 
+Run Stage F using base image (defaults to GHCR `py310` tag):
+
+```bash
+./scripts/build_stagef_with_local_base.sh
+```
+
+Override image source when needed (e.g., local image):
+
+```bash
+IMAGE_TAG=seedsigner-raspi-lvgl/python-armv6:py310-local ./scripts/build_stagef_with_local_base.sh
+```
+
 Stage F logs:
 - `logs/stagef/`
 - `<YYYYmmdd-HHMMSS>_stagef_<mode>_<target>.log`
