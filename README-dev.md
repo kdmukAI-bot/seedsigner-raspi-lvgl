@@ -36,3 +36,18 @@ Expected visual sequence:
 1. White frame
 2. Black frame
 3. Checkerboard frame
+
+## Pi hardware smoke test (input)
+
+Run this on Pi target hardware (with `RPi.GPIO` installed):
+
+```bash
+python scripts/pi_input_smoke.py
+```
+
+(If you prefer explicit pathing: `PYTHONPATH=src python scripts/pi_input_smoke.py`)
+
+Expected behavior:
+- Prints timestamped `press` and `repeat` events for UP/DOWN/LEFT/RIGHT/PRESS/KEY1/KEY2/KEY3
+- Repeat cadence scaffold: first repeat ~225ms, then every ~250ms while held
+- Exit with `Ctrl+C`
