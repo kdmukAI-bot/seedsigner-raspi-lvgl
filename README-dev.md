@@ -47,6 +47,28 @@ TARGET_ARCH=host ./scripts/build_in_docker.sh
 TARGET_ARCH=armv6 ./scripts/build_in_docker.sh
 ```
 
+## Stage C native binding scaffold
+
+Host build + native extension smoke test:
+
+```bash
+./scripts/stagec_build.sh
+```
+
+Docker entrypoint:
+
+```bash
+TARGET_ARCH=host ./scripts/build_stagec_in_docker.sh
+```
+
+Stage C logs:
+- `logs/stagec/`
+- `<YYYYmmdd-HHMMSS>_stagec_<mode>_<target>.log`
+- `<YYYYmmdd-HHMMSS>_stagec_docker_driver_<target>.log`
+
+Current limitation:
+- `TARGET_ARCH=armv6` in Stage C currently runs Stage B ARMv6 compile sanity only; CPython extension cross-build is deferred pending target Python headers/sysroot alignment.
+
 ## Stage C CPython binding scaffold
 
 Build native CPython extension (host):
