@@ -11,10 +11,11 @@ def test_native_module_import_and_queue_shape():
     mod.clear_result_queue()
     assert mod.poll_for_result() is None
 
-    # MicroPython-style contract shape: dict with top_nav + button_list.
+    # Current compiled contract accepts button_list entries as strings
+    # or arrays with string label in index 0.
     cfg = {
         "top_nav": {"title": "Menu"},
-        "button_list": [{"label": "Compiled Path"}],
+        "button_list": ["Compiled Path"],
     }
     mod.button_list_screen(cfg)
 
