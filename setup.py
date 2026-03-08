@@ -47,6 +47,27 @@ font_sources = [
 
 font_paths = [str(SEEDSIGNER_DIR / "fonts" / f) for f in font_sources]
 
+stagef_cross = os.environ.get("STAGEF_CROSS", "0") == "1"
+python_target_include = os.environ.get("PYTHON_TARGET_INCLUDE", "").strip()
+python_target_libdir = os.environ.get("PYTHON_TARGET_LIBDIR", "").strip()
+python_target_ldlibrary = os.environ.get("PYTHON_TARGET_LDLIBRARY", "").strip()
+
+include_dirs = [
+    str(LVGL_ROOT),
+    str(SEEDSIGNER_DIR),
+    str(NLOHMANN_JSON_INCLUDE_DIR),
+]
+
+extra_link_args: list[str] = []
+if stagef_cross and python_target_include:
+    include_dirs.insert(0, python_target_include)
+if stagef_cross and python_target_libdir:
+    extra_link_args.extend([f"-L{python_target_libdir}"])
+if stagef_cross and python_target_ldlibrary:
+    if python_target_ldlibrary.startswith("lib") and python_target_ldlibrary.endswith((".a", ".so")):
+        libname = python_target_ldlibrary[3:].split(".")[0]
+        extra_link_args.extend([f"-l{libname}"])
+
 ext_modules = [
     Extension(
         "seedsigner_lvgl_native",
@@ -57,13 +78,10 @@ ext_modules = [
             *font_paths,
             *lvgl_sources,
         ],
-        include_dirs=[
-            str(LVGL_ROOT),
-            str(SEEDSIGNER_DIR),
-            str(NLOHMANN_JSON_INCLUDE_DIR),
-        ],
+        include_dirs=include_dirs,
         define_macros=[("LV_CONF_SKIP", "1")],
         extra_compile_args=["-std=c++17"],
+        extra_link_args=extra_link_args,
         language="c++",
     )
 ]

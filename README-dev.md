@@ -47,7 +47,7 @@ TARGET_ARCH=host ./scripts/build_in_docker.sh
 TARGET_ARCH=armv6 ./scripts/build_in_docker.sh
 ```
 
-## Stage C native binding scaffold
+## Stage C/E native binding path
 
 Host build + native extension smoke test:
 
@@ -59,52 +59,44 @@ Docker entrypoint:
 
 ```bash
 TARGET_ARCH=host ./scripts/build_stagec_in_docker.sh
+TARGET_ARCH=armv6 ./scripts/build_stagec_in_docker.sh
 ```
 
-Stage D bridge logs:
+Stage C/E logs:
 - `logs/staged/`
 - `<YYYYmmdd-HHMMSS>_staged_<mode>_<target>.log`
 - `<YYYYmmdd-HHMMSS>_staged_docker_driver_<target>.log`
 
+## Stage F armv6-cpython wiring
+
+Run Stage F host path:
+
+```bash
+TARGET_ARCH=host ./scripts/stagef_build.sh
+```
+
+Run Stage F Docker armv6-cpython wiring:
+
+```bash
+TARGET_ARCH=armv6-cpython ./scripts/build_stagef_in_docker.sh
+```
+
+Stage F logs:
+- `logs/stagef/`
+- `<YYYYmmdd-HHMMSS>_stagef_<mode>_<target>.log`
+- `<YYYYmmdd-HHMMSS>_stagef_docker_driver_<target>.log`
+
+Stage F environment knobs:
+- `ABI_JSON` (default `docs/abi/dev-pi-abi.json`)
+- `PYTHON_TARGET_INCLUDE` (required if target Python headers are not present in container)
+- `PYTHON_TARGET_LIBDIR` (optional)
+- `PYTHON_TARGET_LDLIBRARY` (optional)
+
 Current limitations:
-- `TARGET_ARCH=armv6` in Stage C currently runs Stage B ARMv6 compile sanity only; CPython extension cross-build is deferred pending target Python headers/sysroot alignment.
-- Stage E now runs a minimal LVGL runtime loop with timeout guard, but full joystick->LVGL indev parity wiring is still pending.
+- armv6-cpython build wiring is in place, but successful cross-build still depends on providing target Python headers/sysroot paths.
+- Stage E runtime loop is minimal; full joystick->LVGL indev parity wiring is still pending.
 - If no callback event is emitted before timeout, deterministic fallback queue event is used.
 - Compiled `button_list_screen` currently expects `button_list` entries as strings or arrays/tuples with string at index 0.
-
-## Stage C CPython binding scaffold
-
-Build native CPython extension (host):
-
-```bash
-./scripts/stagec_build.sh
-```
-
-Build native CPython extension through Docker:
-
-```bash
-TARGET_ARCH=host ./scripts/stagec_build_in_docker.sh
-TARGET_ARCH=armv6 ./scripts/stagec_build_in_docker.sh
-```
-
-Stage C logs are written under:
-- `logs/stagec/`
-- filename format starts with UTC timestamp, e.g.
-  - `<YYYYmmdd-HHMMSS>_stagec_docker_driver_<target>.log`
-  - `<YYYYmmdd-HHMMSS>_stagec_docker_<target>.log`
-  - `<YYYYmmdd-HHMMSS>_stagec_host_<target>.log`
-
-Import/test command (after host build):
-
-```bash
-PYTHONPATH=build/stagec-native-host-host python -m pytest -q tests/test_native_module_smoke.py
-```
-
-## Current direction status
-
-- Temporary Python `button_list_screen` behavior shim was retired.
-- Stage C adds a minimal native module scaffold (`seedsigner_lvgl_native`) with deterministic placeholder queue behavior.
-- Full runtime parity is not claimed yet; backend linkage remains placeholder wiring until deeper integration.
 
 ## Pi hardware smoke test (display)
 
