@@ -1,0 +1,47 @@
+name: stagec-build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  stagec-host-native:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout seedsigner-raspi-lvgl
+        uses: actions/checkout@v4
+        with:
+          path: seedsigner-raspi-lvgl
+
+      - name: Build Stage C host scaffold via Docker
+        working-directory: seedsigner-raspi-lvgl
+        env:
+          WS_ROOT: ${{ github.workspace }}
+          TARGET_ARCH: host
+        run: |
+          ./scripts/build_stagec_in_docker.sh
+
+  stagec-armv6-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout seedsigner-raspi-lvgl
+        uses: actions/checkout@v4
+        with:
+          path: seedsigner-raspi-lvgl
+
+      - name: Checkout seedsigner-micropython-builder (source dependency)
+        uses: actions/checkout@v4
+        with:
+          repository: kdmukAI-bot/seedsigner-micropython-builder
+          path: seedsigner-micropython-builder
+
+      - name: Run Stage C armv6 gate via Docker
+        working-directory: seedsigner-raspi-lvgl
+        env:
+          WS_ROOT: ${{ github.workspace }}
+          TARGET_ARCH: armv6
+          SEEDSIGNER_C_MODULES_DIR: /workspace/seedsigner-micropython-builder/sources/seedsigner-c-modules
+        run: |
+          ./scripts/build_stagec_in_docker.sh
