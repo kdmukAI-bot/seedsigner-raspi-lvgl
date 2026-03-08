@@ -1,0 +1,21 @@
+{
+  "inference_only": true,
+  "source_repo": "https://github.com/SeedSigner/seedsigner-os",
+  "source_refs": [
+    "opt/pi0/configs/pi0_defconfig",
+    "opt/pi0-dev/configs/pi0-dev_defconfig",
+    "https://github.com/seedsigner/buildroot/blob/master/package/python3/python3.mk"
+  ],
+  "cpu_target": "arm1176jzf-s",
+  "platform_machine_expected": "armv6l",
+  "toolchain_multiarch_expected": "arm-linux-gnueabihf",
+  "libc_family_expected": "glibc",
+  "python3_enabled": true,
+  "python_version_expected": "3.11.3",
+  "soabi_expected": "cpython-311-arm-linux-gnueabihf",
+  "ext_suffix_expected": ".cpython-311-arm-linux-gnueabihf.so",
+  "notes": [
+    "This file is inferred from build definitions, not captured from a running production device.",
+    "Use runtime capture (scripts/capture_python_abi.py) to replace this with authoritative production ABI data when available."
+  ]
+}

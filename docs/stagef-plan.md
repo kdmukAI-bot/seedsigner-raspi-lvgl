@@ -28,6 +28,11 @@ Output files to store in repo:
 
 ## F2 — Target ABI decision
 Select canonical build target ABI from F1 outputs.
+
+Current project priority:
+- Dev ABI is the immediate target for wiring (`cpython-310-arm-linux-gnueabihf`).
+- Production ABI alignment is lower priority until runtime capture is available.
+
 Document in `docs/python-abi-targets.md`:
 - target Python version/ABI
 - acceptable compatibility ranges
