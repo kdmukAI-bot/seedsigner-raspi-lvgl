@@ -100,7 +100,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          BASE="ghcr.io/kdmukai/seedsigner-raspi-lvgl/python-armv6"
+          BASE="ghcr.io/${{ github.repository_owner }}/seedsigner-raspi-lvgl/python-armv6"
           TAG_SERIES="${BASE}:${{ steps.cfg.outputs.py_series }}"
           TAG_SHA="${BASE}:${{ steps.cfg.outputs.py_series }}-${GITHUB_SHA}"
           echo "tag_series=${TAG_SERIES}" >> "$GITHUB_OUTPUT"
