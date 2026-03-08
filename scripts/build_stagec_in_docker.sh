@@ -8,9 +8,9 @@ WS_ROOT="${WS_ROOT:-$(cd "${ROOT_DIR}/../.." && pwd)}"
 DOCKERFILE="${ROOT_DIR}/docker/Dockerfile.stageb"
 
 RUN_TS="${RUN_TS:-$(date -u +%Y%m%d-%H%M%S)}"
-LOG_DIR="${ROOT_DIR}/logs/stagec"
+LOG_DIR="${ROOT_DIR}/logs/staged"
 mkdir -p "${LOG_DIR}"
-LOG_FILE="${LOG_DIR}/${RUN_TS}_stagec_docker_driver_${TARGET_ARCH}.log"
+LOG_FILE="${LOG_DIR}/${RUN_TS}_staged_docker_driver_${TARGET_ARCH}.log"
 exec > >(tee -a "${LOG_FILE}")
 exec 2>&1
 

@@ -61,10 +61,10 @@ Docker entrypoint:
 TARGET_ARCH=host ./scripts/build_stagec_in_docker.sh
 ```
 
-Stage C logs:
-- `logs/stagec/`
-- `<YYYYmmdd-HHMMSS>_stagec_<mode>_<target>.log`
-- `<YYYYmmdd-HHMMSS>_stagec_docker_driver_<target>.log`
+Stage D bridge logs:
+- `logs/staged/`
+- `<YYYYmmdd-HHMMSS>_staged_<mode>_<target>.log`
+- `<YYYYmmdd-HHMMSS>_staged_docker_driver_<target>.log`
 
 Current limitation:
 - `TARGET_ARCH=armv6` in Stage C currently runs Stage B ARMv6 compile sanity only; CPython extension cross-build is deferred pending target Python headers/sysroot alignment.

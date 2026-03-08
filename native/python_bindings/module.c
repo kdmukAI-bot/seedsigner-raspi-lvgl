@@ -1,5 +1,8 @@
 #define PY_SSIZE_T_CLEAN
 #include <Python.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
 
 #define RESULT_QUEUE_CAP 32
 #define RESULT_LABEL_MAX 128
@@ -13,6 +16,15 @@ static result_event_t s_queue[RESULT_QUEUE_CAP];
 static unsigned int s_head = 0;
 static unsigned int s_tail = 0;
 static unsigned int s_count = 0;
+
+static const char *s_last_path = "stub";
+
+typedef void (*seedsigner_button_selected_cb_t)(uint32_t index, const char *label, void *ctx);
+int seedsigner_lvgl_run_button_list_screen_json(
+    const char *cfg_json,
+    seedsigner_button_selected_cb_t cb,
+    void *ctx
+);
 
 static void queue_push(unsigned int index, const char *label) {
     result_event_t ev;
@@ -30,6 +42,11 @@ static void queue_push(unsigned int index, const char *label) {
     s_queue[s_tail] = ev;
     s_tail = (s_tail + 1) % RESULT_QUEUE_CAP;
     s_count++;
+}
+
+void seedsigner_lvgl_on_button_selected(uint32_t index, const char *label, void *ctx) {
+    (void)ctx;
+    queue_push((unsigned int)index, label);
 }
 
 static PyObject *py_clear_result_queue(PyObject *self, PyObject *args) {
@@ -56,51 +73,10 @@ static PyObject *py_poll_for_result(PyObject *self, PyObject *args) {
     return Py_BuildValue("(sIs)", "button_selected", ev.index, ev.label);
 }
 
-static const char *extract_first_label(PyObject *cfg, char *buf, size_t buf_size) {
-    PyObject *button_list = PyDict_GetItemString(cfg, "button_list");
-    if (!button_list || !PyList_Check(button_list) || PyList_Size(button_list) == 0) {
-        snprintf(buf, buf_size, "%s", "stagec_stub");
-        return buf;
-    }
-
-    PyObject *first = PyList_GetItem(button_list, 0);  // borrowed
-    if (!first) {
-        snprintf(buf, buf_size, "%s", "stagec_stub");
-        return buf;
-    }
-
-    if (PyUnicode_Check(first)) {
-        const char *s = PyUnicode_AsUTF8(first);
-        if (s) {
-            snprintf(buf, buf_size, "%s", s);
-            return buf;
-        }
-    }
-
-    if (PyTuple_Check(first) && PyTuple_Size(first) >= 1) {
-        PyObject *item0 = PyTuple_GetItem(first, 0);  // borrowed
-        if (item0 && PyUnicode_Check(item0)) {
-            const char *s = PyUnicode_AsUTF8(item0);
-            if (s) {
-                snprintf(buf, buf_size, "%s", s);
-                return buf;
-            }
-        }
-    }
-
-    if (PyDict_Check(first)) {
-        PyObject *label_obj = PyDict_GetItemString(first, "label");
-        if (label_obj && PyUnicode_Check(label_obj)) {
-            const char *s = PyUnicode_AsUTF8(label_obj);
-            if (s) {
-                snprintf(buf, buf_size, "%s", s);
-                return buf;
-            }
-        }
-    }
-
-    snprintf(buf, buf_size, "%s", "stagec_stub");
-    return buf;
+static PyObject *py_debug_last_path(PyObject *self, PyObject *args) {
+    (void)self;
+    (void)args;
+    return PyUnicode_FromString(s_last_path);
 }
 
 static PyObject *py_button_list_screen(PyObject *self, PyObject *args) {
@@ -116,17 +92,50 @@ static PyObject *py_button_list_screen(PyObject *self, PyObject *args) {
         return NULL;
     }
 
-    // Stage C scaffold behavior: deterministic result based on first button label.
-    char label_buf[RESULT_LABEL_MAX];
-    const char *label = extract_first_label(cfg, label_buf, sizeof(label_buf));
-    queue_push(0, label);
+    PyObject *json_mod = PyImport_ImportModule("json");
+    if (!json_mod) {
+        return NULL;
+    }
+
+    PyObject *dumps_fn = PyObject_GetAttrString(json_mod, "dumps");
+    Py_DECREF(json_mod);
+    if (!dumps_fn) {
+        return NULL;
+    }
+
+    PyObject *json_str_obj = PyObject_CallFunctionObjArgs(dumps_fn, cfg, NULL);
+    Py_DECREF(dumps_fn);
+    if (!json_str_obj) {
+        return NULL;
+    }
+
+    const char *cfg_json = PyUnicode_AsUTF8(json_str_obj);
+    if (!cfg_json) {
+        Py_DECREF(json_str_obj);
+        return NULL;
+    }
+
+    int rc = seedsigner_lvgl_run_button_list_screen_json(
+        cfg_json,
+        seedsigner_lvgl_on_button_selected,
+        NULL
+    );
+    Py_DECREF(json_str_obj);
+
+    if (rc < 0) {
+        PyErr_SetString(PyExc_RuntimeError, "compiled button_list_screen bridge failed");
+        return NULL;
+    }
+
+    s_last_path = "compiled";
     Py_RETURN_NONE;
 }
 
 static PyMethodDef methods[] = {
-    {"button_list_screen", py_button_list_screen, METH_VARARGS, "Stage C stub callable."},
+    {"button_list_screen", py_button_list_screen, METH_VARARGS, "Stage D compiled bridge callable."},
     {"clear_result_queue", py_clear_result_queue, METH_NOARGS, "Clear result queue."},
     {"poll_for_result", py_poll_for_result, METH_NOARGS, "Poll next result tuple or None."},
+    {"_debug_last_path", py_debug_last_path, METH_NOARGS, "Debug helper: returns call path marker."},
     {NULL, NULL, 0, NULL},
 };
 
