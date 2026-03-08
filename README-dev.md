@@ -66,8 +66,10 @@ Stage D bridge logs:
 - `<YYYYmmdd-HHMMSS>_staged_<mode>_<target>.log`
 - `<YYYYmmdd-HHMMSS>_staged_docker_driver_<target>.log`
 
-Current limitation:
+Current limitations:
 - `TARGET_ARCH=armv6` in Stage C currently runs Stage B ARMv6 compile sanity only; CPython extension cross-build is deferred pending target Python headers/sysroot alignment.
+- Stage D bridge now calls compiled `button_list_screen`, but interactive input/runtime loop parity is not yet wired; deterministic fallback queue event is used when no callback event is produced.
+- Compiled `button_list_screen` currently expects `button_list` entries as strings or arrays with string at index 0.
 
 ## Stage C CPython binding scaffold
 
