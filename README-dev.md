@@ -47,11 +47,39 @@ TARGET_ARCH=host ./scripts/build_in_docker.sh
 TARGET_ARCH=armv6 ./scripts/build_in_docker.sh
 ```
 
+## Stage C CPython binding scaffold
+
+Build native CPython extension (host):
+
+```bash
+./scripts/stagec_build.sh
+```
+
+Build native CPython extension through Docker:
+
+```bash
+TARGET_ARCH=host ./scripts/stagec_build_in_docker.sh
+TARGET_ARCH=armv6 ./scripts/stagec_build_in_docker.sh
+```
+
+Stage C logs are written under:
+- `logs/stagec/`
+- filename format starts with UTC timestamp, e.g.
+  - `<YYYYmmdd-HHMMSS>_stagec_docker_driver_<target>.log`
+  - `<YYYYmmdd-HHMMSS>_stagec_docker_<target>.log`
+  - `<YYYYmmdd-HHMMSS>_stagec_host_<target>.log`
+
+Import/test command (after host build):
+
+```bash
+PYTHONPATH=build/stagec-native-host-host python -m pytest -q tests/test_native_module_smoke.py
+```
+
 ## Current direction status
 
 - Temporary Python `button_list_screen` behavior shim was retired.
-- Target implementation path is compiled C/C++ LVGL screens exposed through Python bindings.
-- Until compiled bindings are wired, calling `button_list_screen` from Python package raises `NotImplementedError` by design.
+- Stage C adds a minimal native module scaffold (`seedsigner_lvgl_native`) with deterministic placeholder queue behavior.
+- Full runtime parity is not claimed yet; backend linkage remains placeholder wiring until deeper integration.
 
 ## Pi hardware smoke test (display)
 
