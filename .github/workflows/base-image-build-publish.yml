@@ -40,6 +40,7 @@ jobs:
         id: cfg
         shell: bash
         run: |
+          # shellcheck disable=SC2129
           set -euo pipefail
 
           if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
@@ -72,11 +73,13 @@ jobs:
               ;;
           esac
 
-          echo "python_major=${PY_MAJOR}" >> "$GITHUB_OUTPUT"
-          echo "python_version=${PY_VERSION}" >> "$GITHUB_OUTPUT"
-          echo "py_series=${PY_SERIES}" >> "$GITHUB_OUTPUT"
-          echo "expected_soabi=${EXPECTED_SOABI}" >> "$GITHUB_OUTPUT"
-          echo "do_push=${DO_PUSH}" >> "$GITHUB_OUTPUT"
+          {
+            echo "python_major=${PY_MAJOR}"
+            echo "python_version=${PY_VERSION}"
+            echo "py_series=${PY_SERIES}"
+            echo "expected_soabi=${EXPECTED_SOABI}"
+            echo "do_push=${DO_PUSH}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -135,38 +138,42 @@ jobs:
         run: |
           set -euo pipefail
           IMAGE="local/stagef-armv6-smoke:${{ github.run_id }}"
-          docker run --rm --platform linux/arm/v6 "$IMAGE" \
-            python3 - <<'PY' > abi-smoke.json
-import json
-import platform
-import sysconfig
+          docker run --rm --platform linux/arm/v6 "$IMAGE" python3 - <<'PY' > abi-smoke.json
+          import json
+          import platform
+          import sysconfig
 
-out = {
-  "platform_machine": platform.machine(),
-  "python_version": platform.python_version(),
-  "soabi": sysconfig.get_config_var("SOABI"),
-  "ext_suffix": sysconfig.get_config_var("EXT_SUFFIX"),
-}
-print(json.dumps(out, indent=2, sort_keys=True))
-PY
+          out = {
+              "platform_machine": platform.machine(),
+              "python_version": platform.python_version(),
+              "soabi": sysconfig.get_config_var("SOABI"),
+              "ext_suffix": sysconfig.get_config_var("EXT_SUFFIX"),
+          }
+          print(json.dumps(out, indent=2, sort_keys=True))
+          PY
 
           cat abi-smoke.json
 
           python3 - <<'PY'
-import json,sys
-with open('abi-smoke.json','r',encoding='utf-8') as f:
-    d=json.load(f)
-machine=(d.get('platform_machine') or '').lower()
-soabi=d.get('soabi') or ''
-expected='${{ steps.cfg.outputs.expected_soabi }}'
-if 'armv6' not in machine:
-    print(f"ERROR: expected armv6 machine, got: {machine}")
-    sys.exit(2)
-if expected not in soabi:
-    print(f"ERROR: expected SOABI marker {expected}, got: {soabi}")
-    sys.exit(3)
-print('ABI smoke checks passed')
-PY
+          import json
+          import sys
+
+          with open('abi-smoke.json', 'r', encoding='utf-8') as f:
+              d = json.load(f)
+
+          machine = (d.get('platform_machine') or '').lower()
+          soabi = d.get('soabi') or ''
+          expected = '${{ steps.cfg.outputs.expected_soabi }}'
+
+          if 'armv6' not in machine:
+              print(f"ERROR: expected armv6 machine, got: {machine}")
+              sys.exit(2)
+          if expected not in soabi:
+              print(f"ERROR: expected SOABI marker {expected}, got: {soabi}")
+              sys.exit(3)
+
+          print('ABI smoke checks passed')
+          PY
 
       - name: Upload ABI smoke artifact
         uses: actions/upload-artifact@v4
