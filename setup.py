@@ -85,6 +85,12 @@ if stagef_armv6_force:
         "-mfpu=vfp",
         "-mfloat-abi=hard",
     ])
+    # Avoid runtime dependency on host libstdc++/libgcc symbol versions.
+    # This is critical for Pi Zero targets that often have older system toolchains.
+    extra_link_args.extend([
+        "-static-libstdc++",
+        "-static-libgcc",
+    ])
 if stagef_cross and python_target_include:
     include_dirs.insert(0, python_target_include)
 if stagef_cross and python_target_libdir:

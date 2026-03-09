@@ -74,15 +74,12 @@ if not all([arch, tune, fpu, float_abi]):
 print('[stagef-emu] lock toolchain OK')
 PY
 
-# Temporary dev-OS compatibility enforcement:
-# prefer older GCC toolchain when available to avoid newer GLIBCXX symbol requirements.
-if command -v gcc-8 >/dev/null 2>&1 && command -v g++-8 >/dev/null 2>&1; then
-  export CC=gcc-8
-  export CXX=g++-8
-  export LDSHARED="g++-8 -shared"
-  export CCACHE_DISABLE=1
-  echo "[stagef-emu] using gcc-8/g++-8 compatibility mode (temporary)"
-fi
+# Compiler is now supplied by the locked py310-dev base image toolchain.
+# No runtime apt/compiler workaround in this build path.
+export CC="${CC:-gcc}"
+export CXX="${CXX:-g++}"
+export LDSHARED="${LDSHARED:-${CXX} -shared}"
+echo "[stagef-emu] compiler CC=${CC} CXX=${CXX}"
 
 # Force Pi Zero-compatible ARMv6 code generation from lock values.
 ARCH="$("${PYTHON_BIN}" - <<'PY' "${LOCK_FILE}"
@@ -178,6 +175,20 @@ if command -v readelf >/dev/null 2>&1; then
     echo "ERROR: artifact CPU arch attribute is not ARMv6-compatible" >&2
     exit 7
   fi
+fi
+
+# Runtime compatibility gate for libstdc++ symbols.
+# Default ceiling targets older Pi userspace; override via MAX_GLIBCXX as needed.
+MAX_GLIBCXX="${MAX_GLIBCXX:-GLIBCXX_3.4.21}"
+FOUND_GLIBCXX="$(strings "${ART}" | grep -o 'GLIBCXX_[0-9.]*' | sort -V | tail -n1 || true)"
+if [[ -n "${FOUND_GLIBCXX}" ]]; then
+  echo "[stagef-emu] max_glibcxx_required=${FOUND_GLIBCXX} allowed=${MAX_GLIBCXX}"
+  if [[ "$(printf '%s\n%s\n' "${MAX_GLIBCXX}" "${FOUND_GLIBCXX}" | sort -V | tail -n1)" != "${MAX_GLIBCXX}" ]]; then
+    echo "ERROR: GLIBCXX requirement too new for target runtime: ${FOUND_GLIBCXX} > ${MAX_GLIBCXX}" >&2
+    exit 8
+  fi
+else
+  echo "[stagef-emu] no GLIBCXX symbols found in artifact (likely static libstdc++)"
 fi
 
 echo "[stagef-emu] OK"
