@@ -3,6 +3,14 @@ name: base-image-build-publish
 on:
   workflow_dispatch:
     inputs:
+      build_profile:
+        description: "Build profile"
+        required: true
+        type: choice
+        options:
+          - dev
+          - prod
+        default: dev
       python_major:
         description: "Python major/minor line to target"
         required: true
@@ -44,9 +52,11 @@ jobs:
           set -euo pipefail
 
           if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            BUILD_PROFILE='${{ github.event.inputs.build_profile }}'
             PY_MAJOR='${{ github.event.inputs.python_major }}'
             DO_PUSH='${{ github.event.inputs.push }}'
           else
+            BUILD_PROFILE='prod'
             PY_MAJOR='3.10'
             DO_PUSH='false'
           fi
@@ -54,17 +64,17 @@ jobs:
           case "${PY_MAJOR}" in
             3.10)
               PY_VERSION='3.10.10'
-              PY_SERIES='py310'
+              PY_SERIES_BASE='py310'
               EXPECTED_SOABI='cpython-310-arm-linux-gnueabihf'
               ;;
             3.11)
               PY_VERSION='3.11.9'
-              PY_SERIES='py311'
+              PY_SERIES_BASE='py311'
               EXPECTED_SOABI='cpython-311-arm-linux-gnueabihf'
               ;;
             3.12)
               PY_VERSION='3.12.3'
-              PY_SERIES='py312'
+              PY_SERIES_BASE='py312'
               EXPECTED_SOABI='cpython-312-arm-linux-gnueabihf'
               ;;
             *)
@@ -73,7 +83,30 @@ jobs:
               ;;
           esac
 
+          case "${BUILD_PROFILE}" in
+            dev)
+              PY_SERIES="${PY_SERIES_BASE}-dev"
+              ;;
+            prod)
+              PY_SERIES="${PY_SERIES_BASE}"
+              ;;
+            *)
+              echo "Unsupported build_profile: ${BUILD_PROFILE}" >&2
+              exit 3
+              ;;
+          esac
+
+          if [[ "${BUILD_PROFILE}" == "dev" && "${PY_SERIES}" != *-dev ]]; then
+            echo "Profile/tag mismatch: dev profile requires -dev series" >&2
+            exit 4
+          fi
+          if [[ "${BUILD_PROFILE}" == "prod" && "${PY_SERIES}" == *-dev ]]; then
+            echo "Profile/tag mismatch: prod profile must not include -dev series" >&2
+            exit 5
+          fi
+
           {
+            echo "build_profile=${BUILD_PROFILE}"
             echo "python_major=${PY_MAJOR}"
             echo "python_version=${PY_VERSION}"
             echo "py_series=${PY_SERIES}"
@@ -102,8 +135,8 @@ jobs:
           set -euo pipefail
           OWNER_LC="$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
           BASE="ghcr.io/${OWNER_LC}/seedsigner-raspi-lvgl/python-armv6"
-          TAG_SERIES="${BASE}:${{ steps.cfg.outputs.py_series }}-dev"
-          TAG_SHA="${BASE}:${{ steps.cfg.outputs.py_series }}-dev-${GITHUB_SHA}"
+          TAG_SERIES="${BASE}:${{ steps.cfg.outputs.py_series }}"
+          TAG_SHA="${BASE}:${{ steps.cfg.outputs.py_series }}-${GITHUB_SHA}"
           {
             echo "tag_series=${TAG_SERIES}"
             echo "tag_sha=${TAG_SHA}"
