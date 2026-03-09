@@ -130,19 +130,39 @@ static void write_text_file(const std::string &path, const std::string &value) {
     if (fd < 0) {
         throw std::runtime_error("open failed: " + path + " errno=" + std::to_string(errno));
     }
-    ssize_t n = write(fd, value.c_str(), value.size());
-    close(fd);
-    if (n < 0 || static_cast<size_t>(n) != value.size()) {
-        throw std::runtime_error("write failed: " + path + " errno=" + std::to_string(errno));
+
+    size_t off = 0;
+    while (off < value.size()) {
+        ssize_t n = write(fd, value.c_str() + off, value.size() - off);
+        if (n < 0) {
+            int e = errno;
+            close(fd);
+            throw std::runtime_error("write failed: " + path + " errno=" + std::to_string(e));
+        }
+        off += static_cast<size_t>(n);
     }
+
+    close(fd);
 }
 
 static void gpio_export_pin(int pin) {
-    write_text_file("/sys/class/gpio/export", std::to_string(pin));
+    try {
+        write_text_file("/sys/class/gpio/export", std::to_string(pin));
+    } catch (const std::exception &e) {
+        std::string msg = e.what();
+        if (msg.find("errno=16") != std::string::npos) {
+            return;  // already exported
+        }
+        throw;
+    }
 }
 
 static void gpio_unexport_pin(int pin) {
-    write_text_file("/sys/class/gpio/unexport", std::to_string(pin));
+    try {
+        write_text_file("/sys/class/gpio/unexport", std::to_string(pin));
+    } catch (const std::exception &) {
+        // best-effort cleanup
+    }
 }
 
 static void gpio_set_dir_out(int pin) {
@@ -157,9 +177,22 @@ static void native_spi_write(const uint8_t *data, size_t len) {
     if (s_native.spi_fd < 0) {
         throw std::runtime_error("native SPI not initialized");
     }
-    ssize_t n = write(s_native.spi_fd, data, len);
-    if (n < 0 || static_cast<size_t>(n) != len) {
-        throw std::runtime_error("SPI write failed errno=" + std::to_string(errno));
+
+    const size_t kChunk = 4096;
+    size_t off = 0;
+    while (off < len) {
+        size_t nreq = (len - off > kChunk) ? kChunk : (len - off);
+        ssize_t n = write(s_native.spi_fd, data + off, nreq);
+        if (n < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            throw std::runtime_error("SPI write failed errno=" + std::to_string(errno));
+        }
+        if (n == 0) {
+            throw std::runtime_error("SPI write returned 0 bytes");
+        }
+        off += static_cast<size_t>(n);
     }
 }
 
