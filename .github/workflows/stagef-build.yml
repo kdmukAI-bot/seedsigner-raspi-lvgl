@@ -1,0 +1,144 @@
+name: stagef-build
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_profile:
+        description: "Build profile"
+        required: true
+        type: choice
+        options:
+          - dev
+          - prod
+        default: dev
+      python_major:
+        description: "Python major/minor line"
+        required: true
+        type: choice
+        options:
+          - "3.10"
+          - "3.11"
+          - "3.12"
+        default: "3.10"
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/stagef-build.yml'
+      - 'scripts/build_stagef_with_local_base.sh'
+      - 'scripts/stagef_emu_build.sh'
+      - 'setup.py'
+      - 'versions.lock.toml'
+  pull_request:
+    paths:
+      - '.github/workflows/stagef-build.yml'
+      - 'scripts/build_stagef_with_local_base.sh'
+      - 'scripts/stagef_emu_build.sh'
+      - 'setup.py'
+      - 'versions.lock.toml'
+
+jobs:
+  stagef-emu-armv6:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout seedsigner-raspi-lvgl
+        uses: actions/checkout@v4
+        with:
+          path: dev/seedsigner-raspi-lvgl
+
+      - name: Checkout seedsigner-micropython-builder (source dependency)
+        uses: actions/checkout@v4
+        with:
+          repository: kdmukAI-bot/seedsigner-micropython-builder
+          path: dev/seedsigner-micropython-builder
+
+      - name: Resolve image tag
+        id: cfg
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            BUILD_PROFILE='${{ github.event.inputs.build_profile }}'
+            PY_MAJOR='${{ github.event.inputs.python_major }}'
+          else
+            BUILD_PROFILE='dev'
+            PY_MAJOR='3.10'
+          fi
+
+          case "${PY_MAJOR}" in
+            3.10) PY_SERIES_BASE='py310' ;;
+            3.11) PY_SERIES_BASE='py311' ;;
+            3.12) PY_SERIES_BASE='py312' ;;
+            *)
+              echo "Unsupported python_major: ${PY_MAJOR}" >&2
+              exit 2
+              ;;
+          esac
+
+          case "${BUILD_PROFILE}" in
+            dev) PY_SERIES="${PY_SERIES_BASE}-dev" ;;
+            prod) PY_SERIES="${PY_SERIES_BASE}" ;;
+            *)
+              echo "Unsupported build_profile: ${BUILD_PROFILE}" >&2
+              exit 3
+              ;;
+          esac
+
+          if [[ "${BUILD_PROFILE}" == "dev" && "${PY_SERIES}" != *-dev ]]; then
+            echo "Profile/tag mismatch: dev profile requires -dev series" >&2
+            exit 4
+          fi
+          if [[ "${BUILD_PROFILE}" == "prod" && "${PY_SERIES}" == *-dev ]]; then
+            echo "Profile/tag mismatch: prod profile must not include -dev series" >&2
+            exit 5
+          fi
+
+          IMAGE_TAG="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/seedsigner-raspi-lvgl/python-armv6:${PY_SERIES}"
+
+          {
+            echo "build_profile=${BUILD_PROFILE}"
+            echo "python_major=${PY_MAJOR}"
+            echo "py_series=${PY_SERIES}"
+            echo "image_tag=${IMAGE_TAG}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Pull base image
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker pull --platform linux/arm/v6 "${{ steps.cfg.outputs.image_tag }}"
+
+      - name: Build Stage F using base image
+        working-directory: dev/seedsigner-raspi-lvgl
+        env:
+          WS_ROOT: ${{ github.workspace }}
+          IMAGE_TAG: ${{ steps.cfg.outputs.image_tag }}
+          PLATFORM: linux/arm/v6
+        run: |
+          ./scripts/build_stagef_with_local_base.sh
+
+      - name: Locate built extension
+        id: art
+        shell: bash
+        run: |
+          set -euo pipefail
+          ART="$(ls -1 ${GITHUB_WORKSPACE}/dev/seedsigner-raspi-lvgl/src/seedsigner_lvgl_native*.so | head -n1)"
+          echo "artifact=${ART}" >> "$GITHUB_OUTPUT"
+          echo "artifact_basename=$(basename "$ART")" >> "$GITHUB_OUTPUT"
+
+      - name: Upload Stage F extension artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: stagef-${{ steps.cfg.outputs.py_series }}-${{ github.sha }}
+          path: ${{ steps.art.outputs.artifact }}
+          if-no-files-found: error
+
+      - name: Upload Stage F logs
+        uses: actions/upload-artifact@v4
+        with:
+          name: stagef-logs-${{ github.run_id }}
+          path: ${{ github.workspace }}/dev/seedsigner-raspi-lvgl/logs/stagef/
+          if-no-files-found: error
