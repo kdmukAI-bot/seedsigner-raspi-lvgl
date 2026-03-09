@@ -12,6 +12,7 @@
 #include <thread>
 #include <cstdint>
 #include <cerrno>
+#include <vector>
 
 #include <fcntl.h>
 #include <linux/spi/spidev.h>
@@ -74,6 +75,9 @@ static native_display_t s_native = {
 };
 
 static bool s_use_native_flush = false;
+static bool s_native_debug_log = false;
+static uint32_t s_native_flush_log_limit = 20;
+static uint32_t s_native_flush_log_count = 0;
 
 static void queue_push(result_kind_t kind, int index, const char *label) {
     result_event_t ev;
@@ -248,12 +252,62 @@ static void native_display_blit(int x1, int y1, int x2, int y2, const uint8_t *b
     native_data_buf(buf, len);
 }
 
+static void native_display_test_pattern() {
+    if (!s_native.ready) {
+        throw std::runtime_error("native display not initialized");
+    }
+
+    const uint16_t colors[] = {
+        0xF800, // red
+        0x07E0, // green
+        0x001F, // blue
+        0xFFFF, // white
+        0x0000, // black
+    };
+    const int bands = static_cast<int>(sizeof(colors) / sizeof(colors[0]));
+    int band_h = static_cast<int>(s_native.height) / bands;
+    if (band_h <= 0) {
+        band_h = 1;
+    }
+
+    std::vector<uint8_t> row(static_cast<size_t>(s_native.width) * 2);
+    for (int b = 0; b < bands; ++b) {
+        uint16_t c = colors[b];
+        for (uint32_t x = 0; x < s_native.width; ++x) {
+            row[2 * x] = static_cast<uint8_t>((c >> 8) & 0xFF);
+            row[2 * x + 1] = static_cast<uint8_t>(c & 0xFF);
+        }
+
+        int y_start = b * band_h;
+        int y_end = (b == bands - 1) ? static_cast<int>(s_native.height) - 1 : (y_start + band_h - 1);
+        if (y_end < y_start) {
+            continue;
+        }
+
+        for (int y = y_start; y <= y_end; ++y) {
+            native_set_window(0, y, static_cast<int>(s_native.width) - 1, y);
+            native_data_buf(row.data(), row.size());
+        }
+    }
+}
+
 static void flush_cb(lv_disp_drv_t *disp_drv, const lv_area_t *area, lv_color_t *color_p) {
     int w = area->x2 - area->x1 + 1;
     int h = area->y2 - area->y1 + 1;
     size_t nbytes = static_cast<size_t>(w) * static_cast<size_t>(h) * static_cast<size_t>(sizeof(lv_color_t));
 
     if (s_use_native_flush && s_native.ready) {
+        size_t expected = static_cast<size_t>(w) * static_cast<size_t>(h) * 2;
+        if (s_native_debug_log && s_native_flush_log_count < s_native_flush_log_limit) {
+            fprintf(stderr, "[seedsigner_lvgl_native] flush #%u area=(%d,%d)-(%d,%d) w=%d h=%d nbytes=%zu expected=%zu\n",
+                    s_native_flush_log_count + 1, area->x1, area->y1, area->x2, area->y2, w, h, nbytes, expected);
+            s_native_flush_log_count++;
+        }
+
+        if (nbytes != expected) {
+            fprintf(stderr, "[seedsigner_lvgl_native] WARN nbytes mismatch: got=%zu expected=%zu\n", nbytes, expected);
+        }
+
         try {
             native_display_blit(area->x1, area->y1, area->x2, area->y2, reinterpret_cast<const uint8_t *>(color_p), nbytes);
         } catch (const std::exception &e) {
@@ -686,6 +740,33 @@ static PyObject *py_set_flush_mode(PyObject *self, PyObject *args) {
     Py_RETURN_NONE;
 }
 
+static PyObject *py_native_debug_config(PyObject *self, PyObject *args, PyObject *kwargs) {
+    (void)self;
+    static const char *kwlist[] = {"enabled", "flush_log_limit", NULL};
+    int enabled = 1;
+    unsigned int flush_log_limit = 20;
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|pI", const_cast<char **>(kwlist), &enabled, &flush_log_limit)) {
+        return NULL;
+    }
+
+    s_native_debug_log = (enabled != 0);
+    s_native_flush_log_limit = flush_log_limit;
+    s_native_flush_log_count = 0;
+    Py_RETURN_NONE;
+}
+
+static PyObject *py_native_display_test_pattern(PyObject *self, PyObject *args) {
+    (void)self;
+    (void)args;
+    try {
+        native_display_test_pattern();
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+    Py_RETURN_NONE;
+}
+
 static PyObject *py_debug_last_path(PyObject *self, PyObject *args) {
     (void)self;
     (void)args;
@@ -755,6 +836,8 @@ static PyMethodDef methods[] = {
     {"lvgl_shutdown", py_lvgl_shutdown, METH_NOARGS, "Shutdown LVGL runtime."},
     {"native_display_init", (PyCFunction)py_native_display_init, METH_VARARGS | METH_KEYWORDS, "Init native ST7789 backend."},
     {"native_display_shutdown", py_native_display_shutdown, METH_NOARGS, "Shutdown native ST7789 backend."},
+    {"native_display_test_pattern", py_native_display_test_pattern, METH_NOARGS, "Render native RGB565 test bands."},
+    {"native_debug_config", (PyCFunction)py_native_debug_config, METH_VARARGS | METH_KEYWORDS, "Configure native flush debug logging."},
     {"set_flush_mode", py_set_flush_mode, METH_VARARGS, "Set flush mode: native|python."},
     {"set_flush_callback", py_set_flush_callback, METH_VARARGS, "Set display flush callback(area, bytes)."},
     {"button_list_screen", py_button_list_screen, METH_VARARGS, "Stage E compiled-path bridge with runtime loop."},
