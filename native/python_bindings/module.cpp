@@ -10,6 +10,13 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <cstdint>
+#include <cerrno>
+
+#include <fcntl.h>
+#include <linux/spi/spidev.h>
+#include <sys/ioctl.h>
+#include <unistd.h>
 
 #define RESULT_QUEUE_CAP 64
 #define RESULT_LABEL_MAX 128
@@ -34,7 +41,39 @@ static unsigned int s_count = 0;
 static bool s_lvgl_inited = false;
 static lv_disp_draw_buf_t s_draw_buf;
 static lv_color_t s_buf1[240 * 10];
+static uint64_t s_last_tick_ms = 0;
+static uint32_t s_hor_res = 240;
+static uint32_t s_ver_res = 240;
 static const char *s_last_path = "none";
+static PyObject *s_flush_cb_py = NULL;
+
+struct native_display_t {
+    int spi_fd;
+    int dc_pin;
+    int rst_pin;
+    int bl_pin;
+    uint32_t speed_hz;
+    uint8_t mode;
+    uint8_t bits_per_word;
+    uint32_t width;
+    uint32_t height;
+    bool ready;
+};
+
+static native_display_t s_native = {
+    .spi_fd = -1,
+    .dc_pin = 22,
+    .rst_pin = 13,
+    .bl_pin = 18,
+    .speed_hz = 40000000,
+    .mode = 0,
+    .bits_per_word = 8,
+    .width = 240,
+    .height = 240,
+    .ready = false,
+};
+
+static bool s_use_native_flush = false;
 
 static void queue_push(result_kind_t kind, int index, const char *label) {
     result_event_t ev;
@@ -86,10 +125,156 @@ extern "C" void seedsigner_lvgl_on_button_selected(uint32_t index, const char *l
     queue_push(RESULT_BUTTON_SELECTED, static_cast<int>(index), safe_label);
 }
 
+static void write_text_file(const std::string &path, const std::string &value) {
+    int fd = open(path.c_str(), O_WRONLY | O_CLOEXEC);
+    if (fd < 0) {
+        throw std::runtime_error("open failed: " + path + " errno=" + std::to_string(errno));
+    }
+    ssize_t n = write(fd, value.c_str(), value.size());
+    close(fd);
+    if (n < 0 || static_cast<size_t>(n) != value.size()) {
+        throw std::runtime_error("write failed: " + path + " errno=" + std::to_string(errno));
+    }
+}
+
+static void gpio_export_pin(int pin) {
+    write_text_file("/sys/class/gpio/export", std::to_string(pin));
+}
+
+static void gpio_unexport_pin(int pin) {
+    write_text_file("/sys/class/gpio/unexport", std::to_string(pin));
+}
+
+static void gpio_set_dir_out(int pin) {
+    write_text_file("/sys/class/gpio/gpio" + std::to_string(pin) + "/direction", "out");
+}
+
+static void gpio_write_value(int pin, bool high) {
+    write_text_file("/sys/class/gpio/gpio" + std::to_string(pin) + "/value", high ? "1" : "0");
+}
+
+static void native_spi_write(const uint8_t *data, size_t len) {
+    if (s_native.spi_fd < 0) {
+        throw std::runtime_error("native SPI not initialized");
+    }
+    ssize_t n = write(s_native.spi_fd, data, len);
+    if (n < 0 || static_cast<size_t>(n) != len) {
+        throw std::runtime_error("SPI write failed errno=" + std::to_string(errno));
+    }
+}
+
+static void native_cmd(uint8_t cmd) {
+    gpio_write_value(s_native.dc_pin, false);
+    native_spi_write(&cmd, 1);
+}
+
+static void native_data_byte(uint8_t b) {
+    gpio_write_value(s_native.dc_pin, true);
+    native_spi_write(&b, 1);
+}
+
+static void native_data_buf(const uint8_t *buf, size_t len) {
+    gpio_write_value(s_native.dc_pin, true);
+    native_spi_write(buf, len);
+}
+
+static void native_set_window(int x1, int y1, int x2, int y2) {
+    native_cmd(0x2A);
+    uint8_t col[] = {static_cast<uint8_t>((x1 >> 8) & 0xFF), static_cast<uint8_t>(x1 & 0xFF), static_cast<uint8_t>((x2 >> 8) & 0xFF), static_cast<uint8_t>(x2 & 0xFF)};
+    native_data_buf(col, sizeof(col));
+
+    native_cmd(0x2B);
+    uint8_t row[] = {static_cast<uint8_t>((y1 >> 8) & 0xFF), static_cast<uint8_t>(y1 & 0xFF), static_cast<uint8_t>((y2 >> 8) & 0xFF), static_cast<uint8_t>(y2 & 0xFF)};
+    native_data_buf(row, sizeof(row));
+
+    native_cmd(0x2C);
+}
+
+static void native_hw_reset() {
+    gpio_write_value(s_native.rst_pin, true);
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    gpio_write_value(s_native.rst_pin, false);
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    gpio_write_value(s_native.rst_pin, true);
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+}
+
+static void native_display_init_sequence() {
+    native_cmd(0x36);
+    native_data_byte(0x70);
+    native_cmd(0x3A);
+    native_data_byte(0x05);
+    native_cmd(0x21);
+    native_cmd(0x11);
+    std::this_thread::sleep_for(std::chrono::milliseconds(120));
+    native_cmd(0x29);
+}
+
+static void native_display_blit(int x1, int y1, int x2, int y2, const uint8_t *buf, size_t len) {
+    native_set_window(x1, y1, x2, y2);
+    native_data_buf(buf, len);
+}
+
 static void flush_cb(lv_disp_drv_t *disp_drv, const lv_area_t *area, lv_color_t *color_p) {
-    (void)area;
-    (void)color_p;
+    int w = area->x2 - area->x1 + 1;
+    int h = area->y2 - area->y1 + 1;
+    size_t nbytes = static_cast<size_t>(w) * static_cast<size_t>(h) * static_cast<size_t>(sizeof(lv_color_t));
+
+    if (s_use_native_flush && s_native.ready) {
+        try {
+            native_display_blit(area->x1, area->y1, area->x2, area->y2, reinterpret_cast<const uint8_t *>(color_p), nbytes);
+        } catch (const std::exception &e) {
+            fprintf(stderr, "[seedsigner_lvgl_native] native flush failed: %s\n", e.what());
+        }
+    } else if (s_flush_cb_py != NULL) {
+        PyGILState_STATE gil = PyGILState_Ensure();
+
+        PyObject *payload = PyBytes_FromStringAndSize(reinterpret_cast<const char *>(color_p), static_cast<Py_ssize_t>(nbytes));
+        if (payload != NULL) {
+            PyObject *ret = PyObject_CallFunction(s_flush_cb_py, "iiiiO", area->x1, area->y1, area->x2, area->y2, payload);
+            if (ret == NULL) {
+                PyErr_Print();
+            } else {
+                Py_DECREF(ret);
+            }
+            Py_DECREF(payload);
+        } else {
+            PyErr_Print();
+        }
+
+        PyGILState_Release(gil);
+    }
+
     lv_disp_flush_ready(disp_drv);
+}
+
+static uint64_t now_ms() {
+    auto now = std::chrono::steady_clock::now().time_since_epoch();
+    return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(now).count());
+}
+
+static void lvgl_tick_update() {
+    if (!s_lvgl_inited) {
+        return;
+    }
+
+    uint64_t now = now_ms();
+    if (s_last_tick_ms == 0) {
+        s_last_tick_ms = now;
+        return;
+    }
+
+    uint64_t delta = now - s_last_tick_ms;
+    if (delta == 0) {
+        return;
+    }
+
+    if (delta > 100) {
+        delta = 100;
+    }
+
+    lv_tick_inc(static_cast<uint32_t>(delta));
+    s_last_tick_ms = now;
 }
 
 static void ensure_lvgl_runtime() {
@@ -103,13 +288,35 @@ static void ensure_lvgl_runtime() {
 
     static lv_disp_drv_t disp_drv;
     lv_disp_drv_init(&disp_drv);
-    disp_drv.hor_res = 240;
-    disp_drv.ver_res = 240;
+    disp_drv.hor_res = s_hor_res;
+    disp_drv.ver_res = s_ver_res;
     disp_drv.flush_cb = flush_cb;
     disp_drv.draw_buf = &s_draw_buf;
     lv_disp_drv_register(&disp_drv);
 
+    s_last_tick_ms = now_ms();
     s_lvgl_inited = true;
+}
+
+static void require_lvgl_runtime() {
+    if (!s_lvgl_inited) {
+        throw std::runtime_error("LVGL runtime not initialized: call lvgl_init(hor_res=..., ver_res=...) first");
+    }
+}
+
+static void lvgl_runtime_shutdown() {
+    if (!s_lvgl_inited) {
+        return;
+    }
+
+#if LV_USE_LOG
+    LV_LOG_USER("lvgl runtime shutdown");
+#endif
+#if defined(LVGL_VERSION_MAJOR) && (LVGL_VERSION_MAJOR >= 8)
+    lv_deinit();
+#endif
+    s_last_tick_ms = 0;
+    s_lvgl_inited = false;
 }
 
 static void validate_cfg(PyObject *cfg) {
@@ -238,11 +445,29 @@ static std::string py_cfg_to_json(PyObject *cfg) {
     return out;
 }
 
+static void lvgl_runtime_pump(unsigned int duration_ms, unsigned int sleep_ms) {
+    if (!s_lvgl_inited) {
+        return;
+    }
+
+    auto start = std::chrono::steady_clock::now();
+    while (true) {
+        lvgl_tick_update();
+        lv_timer_handler();
+
+        auto now = std::chrono::steady_clock::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - start).count();
+        if (elapsed >= static_cast<long long>(duration_ms)) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(sleep_ms));
+    }
+}
+
 static void run_lvgl_until_result_or_timeout(unsigned int timeout_ms) {
     auto start = std::chrono::steady_clock::now();
     while (s_count == 0) {
-        lv_timer_handler();
-        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        lvgl_runtime_pump(5, 1);
 
         auto now = std::chrono::steady_clock::now();
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - start).count();
@@ -258,6 +483,173 @@ static PyObject *py_clear_result_queue(PyObject *self, PyObject *args) {
     s_head = 0;
     s_tail = 0;
     s_count = 0;
+    Py_RETURN_NONE;
+}
+
+static PyObject *py_lvgl_init(PyObject *self, PyObject *args, PyObject *kwargs) {
+    (void)self;
+    static const char *kwlist[] = {"hor_res", "ver_res", NULL};
+    unsigned int hor_res = 240;
+    unsigned int ver_res = 240;
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|II", const_cast<char **>(kwlist), &hor_res, &ver_res)) {
+        return NULL;
+    }
+
+    if (s_lvgl_inited) {
+        Py_RETURN_NONE;
+    }
+
+    if (hor_res == 0 || ver_res == 0) {
+        PyErr_SetString(PyExc_ValueError, "hor_res and ver_res must be > 0");
+        return NULL;
+    }
+
+    s_hor_res = hor_res;
+    s_ver_res = ver_res;
+    ensure_lvgl_runtime();
+    Py_RETURN_NONE;
+}
+
+static PyObject *py_lvgl_shutdown(PyObject *self, PyObject *args) {
+    (void)self;
+    (void)args;
+    lvgl_runtime_shutdown();
+    Py_RETURN_NONE;
+}
+
+static PyObject *py_lvgl_pump(PyObject *self, PyObject *args, PyObject *kwargs) {
+    (void)self;
+    static const char *kwlist[] = {"duration_ms", "sleep_ms", NULL};
+    unsigned int duration_ms = 10;
+    unsigned int sleep_ms = 1;
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|II", const_cast<char **>(kwlist), &duration_ms, &sleep_ms)) {
+        return NULL;
+    }
+
+    require_lvgl_runtime();
+    lvgl_runtime_pump(duration_ms, sleep_ms);
+    Py_RETURN_NONE;
+}
+
+static PyObject *py_set_flush_callback(PyObject *self, PyObject *args) {
+    (void)self;
+    PyObject *cb = Py_None;
+    if (!PyArg_ParseTuple(args, "|O", &cb)) {
+        return NULL;
+    }
+
+    if (cb != Py_None && !PyCallable_Check(cb)) {
+        PyErr_SetString(PyExc_TypeError, "flush callback must be callable or None");
+        return NULL;
+    }
+
+    Py_XINCREF(cb == Py_None ? NULL : cb);
+    Py_XDECREF(s_flush_cb_py);
+    s_flush_cb_py = (cb == Py_None) ? NULL : cb;
+    Py_RETURN_NONE;
+}
+
+static void native_display_shutdown_internal() {
+    if (s_native.spi_fd >= 0) {
+        close(s_native.spi_fd);
+        s_native.spi_fd = -1;
+    }
+
+    if (s_native.ready) {
+        try { gpio_unexport_pin(s_native.dc_pin); } catch (...) {}
+        try { gpio_unexport_pin(s_native.rst_pin); } catch (...) {}
+        try { gpio_unexport_pin(s_native.bl_pin); } catch (...) {}
+    }
+    s_native.ready = false;
+}
+
+static PyObject *py_native_display_init(PyObject *self, PyObject *args, PyObject *kwargs) {
+    (void)self;
+    static const char *kwlist[] = {"width", "height", "dc_pin", "rst_pin", "bl_pin", "spi_path", "spi_speed_hz", NULL};
+    unsigned int width = 240;
+    unsigned int height = 240;
+    int dc_pin = 22;
+    int rst_pin = 13;
+    int bl_pin = 18;
+    const char *spi_path = "/dev/spidev0.0";
+    unsigned int spi_speed_hz = 40000000;
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|IIiiisI", const_cast<char **>(kwlist),
+                                     &width, &height, &dc_pin, &rst_pin, &bl_pin, &spi_path, &spi_speed_hz)) {
+        return NULL;
+    }
+
+    try {
+        native_display_shutdown_internal();
+
+        s_native.width = width;
+        s_native.height = height;
+        s_native.dc_pin = dc_pin;
+        s_native.rst_pin = rst_pin;
+        s_native.bl_pin = bl_pin;
+        s_native.speed_hz = spi_speed_hz;
+
+        gpio_export_pin(s_native.dc_pin);
+        gpio_export_pin(s_native.rst_pin);
+        gpio_export_pin(s_native.bl_pin);
+        gpio_set_dir_out(s_native.dc_pin);
+        gpio_set_dir_out(s_native.rst_pin);
+        gpio_set_dir_out(s_native.bl_pin);
+
+        s_native.spi_fd = open(spi_path, O_RDWR | O_CLOEXEC);
+        if (s_native.spi_fd < 0) {
+            throw std::runtime_error("failed to open spi path");
+        }
+
+        if (ioctl(s_native.spi_fd, SPI_IOC_WR_MODE, &s_native.mode) < 0) {
+            throw std::runtime_error("failed to set SPI mode");
+        }
+        if (ioctl(s_native.spi_fd, SPI_IOC_WR_BITS_PER_WORD, &s_native.bits_per_word) < 0) {
+            throw std::runtime_error("failed to set SPI bits-per-word");
+        }
+        if (ioctl(s_native.spi_fd, SPI_IOC_WR_MAX_SPEED_HZ, &s_native.speed_hz) < 0) {
+            throw std::runtime_error("failed to set SPI speed");
+        }
+
+        gpio_write_value(s_native.bl_pin, true);
+        native_hw_reset();
+        native_display_init_sequence();
+
+        s_native.ready = true;
+        s_use_native_flush = true;
+    } catch (const std::exception &e) {
+        native_display_shutdown_internal();
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+
+    Py_RETURN_NONE;
+}
+
+static PyObject *py_native_display_shutdown(PyObject *self, PyObject *args) {
+    (void)self;
+    (void)args;
+    native_display_shutdown_internal();
+    s_use_native_flush = false;
+    Py_RETURN_NONE;
+}
+
+static PyObject *py_set_flush_mode(PyObject *self, PyObject *args) {
+    (void)self;
+    const char *mode = NULL;
+    if (!PyArg_ParseTuple(args, "s", &mode)) {
+        return NULL;
+    }
+
+    if (std::strcmp(mode, "native") == 0) {
+        s_use_native_flush = true;
+    } else if (std::strcmp(mode, "python") == 0) {
+        s_use_native_flush = false;
+    } else {
+        PyErr_SetString(PyExc_ValueError, "mode must be 'native' or 'python'");
+        return NULL;
+    }
+
     Py_RETURN_NONE;
 }
 
@@ -303,7 +695,7 @@ static PyObject *py_button_list_screen(PyObject *self, PyObject *args) {
 
     try {
         validate_cfg(cfg);
-        ensure_lvgl_runtime();
+        require_lvgl_runtime();
 
         std::string cfg_json = py_cfg_to_json(cfg);
         button_list_screen((void *)cfg_json.c_str());
@@ -326,6 +718,12 @@ static PyObject *py_button_list_screen(PyObject *self, PyObject *args) {
 }
 
 static PyMethodDef methods[] = {
+    {"lvgl_init", (PyCFunction)py_lvgl_init, METH_VARARGS | METH_KEYWORDS, "Initialize LVGL runtime."},
+    {"lvgl_shutdown", py_lvgl_shutdown, METH_NOARGS, "Shutdown LVGL runtime."},
+    {"native_display_init", (PyCFunction)py_native_display_init, METH_VARARGS | METH_KEYWORDS, "Init native ST7789 backend."},
+    {"native_display_shutdown", py_native_display_shutdown, METH_NOARGS, "Shutdown native ST7789 backend."},
+    {"set_flush_mode", py_set_flush_mode, METH_VARARGS, "Set flush mode: native|python."},
+    {"set_flush_callback", py_set_flush_callback, METH_VARARGS, "Set display flush callback(area, bytes)."},
     {"button_list_screen", py_button_list_screen, METH_VARARGS, "Stage E compiled-path bridge with runtime loop."},
     {"clear_result_queue", py_clear_result_queue, METH_NOARGS, "Clear result queue."},
     {"poll_for_result", py_poll_for_result, METH_NOARGS, "Poll next result tuple or None."},

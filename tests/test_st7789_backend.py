@@ -53,6 +53,26 @@ def test_init_sets_expected_defaults():
     assert (18, gpio.OUT) in gpio.setups
 
 
+def test_blit_rgb565_size_check_and_write():
+    gpio = FakeGPIO()
+    spi = FakeSPI()
+    cfg = ST7789Config(width=4, height=4)
+    d = ST7789Display(gpio=gpio, spi=spi, cfg=cfg)
+
+    d.init()
+
+    good = bytes([0x12] * (2 * 2 * 2))
+    d.blit_rgb565(1, 1, 2, 2, good)
+    assert spi.writes2[-1] == good
+
+    bad = bytes([0x12] * 7)
+    try:
+        d.blit_rgb565(1, 1, 2, 2, bad)
+        assert False, "expected ValueError"
+    except ValueError:
+        pass
+
+
 def test_show_rgb565_frame_size_check_and_write():
     gpio = FakeGPIO()
     spi = FakeSPI()

@@ -37,6 +37,7 @@ def main() -> int:
     }
 
     try:
+        mod.lvgl_init(hor_res=240, ver_res=240)
         mod.button_list_screen(cfg)
         event = mod.poll_for_result()
     except Exception as e:
