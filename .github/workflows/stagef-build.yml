@@ -42,14 +42,12 @@ jobs:
     steps:
       - name: Checkout seedsigner-raspi-lvgl
         uses: actions/checkout@v4
-        with:
-          path: dev/seedsigner-raspi-lvgl
 
       - name: Checkout seedsigner-micropython-builder (source dependency)
         uses: actions/checkout@v4
         with:
           repository: kdmukAI-bot/seedsigner-micropython-builder
-          path: dev/seedsigner-micropython-builder
+          path: seedsigner-micropython-builder
 
       - name: Resolve image tag
         id: cfg
@@ -111,12 +109,18 @@ jobs:
           set -euo pipefail
           docker pull --platform linux/arm/v6 "${{ steps.cfg.outputs.image_tag }}"
 
+      - name: Preflight dependency path check
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f "${GITHUB_WORKSPACE}/seedsigner-micropython-builder/sources/seedsigner-c-modules/components/seedsigner/seedsigner.cpp"
+
       - name: Build Stage F using base image
-        working-directory: dev/seedsigner-raspi-lvgl
         env:
           WS_ROOT: ${{ github.workspace }}
           IMAGE_TAG: ${{ steps.cfg.outputs.image_tag }}
           PLATFORM: linux/arm/v6
+          SEEDSIGNER_C_MODULES_DIR: /workspace/seedsigner-micropython-builder/sources/seedsigner-c-modules
         run: |
           ./scripts/build_stagef_with_local_base.sh
 
@@ -125,7 +129,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ART="$(ls -1 ${GITHUB_WORKSPACE}/dev/seedsigner-raspi-lvgl/src/seedsigner_lvgl_native*.so | head -n1)"
+          ART="$(ls -1 ${GITHUB_WORKSPACE}/src/seedsigner_lvgl_native*.so | head -n1)"
           echo "artifact=${ART}" >> "$GITHUB_OUTPUT"
           echo "artifact_basename=$(basename "$ART")" >> "$GITHUB_OUTPUT"
 
@@ -140,5 +144,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: stagef-logs-${{ github.run_id }}
-          path: ${{ github.workspace }}/dev/seedsigner-raspi-lvgl/logs/stagef/
+          path: ${{ github.workspace }}/logs/stagef/
           if-no-files-found: error
