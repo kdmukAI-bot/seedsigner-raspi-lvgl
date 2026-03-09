@@ -16,6 +16,7 @@
 
 #include <fcntl.h>
 #include <linux/spi/spidev.h>
+#include <linux/gpio.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
 
@@ -50,6 +51,11 @@ static PyObject *s_flush_cb_py = NULL;
 
 struct native_display_t {
     int spi_fd;
+    int gpio_chip_fd;
+    int dc_line_fd;
+    int rst_line_fd;
+    int bl_line_fd;
+    bool gpiochip_ready;
     int dc_pin;
     int rst_pin;
     int bl_pin;
@@ -63,6 +69,11 @@ struct native_display_t {
 
 static native_display_t s_native = {
     .spi_fd = -1,
+    .gpio_chip_fd = -1,
+    .dc_line_fd = -1,
+    .rst_line_fd = -1,
+    .bl_line_fd = -1,
+    .gpiochip_ready = false,
     .dc_pin = 22,
     .rst_pin = 13,
     .bl_pin = 18,
@@ -173,7 +184,62 @@ static void gpio_set_dir_out(int pin) {
     write_text_file("/sys/class/gpio/gpio" + std::to_string(pin) + "/direction", "out");
 }
 
+static int gpiochip_request_line(int chip_fd, int pin, const char *consumer) {
+    struct gpiohandle_request req;
+    memset(&req, 0, sizeof(req));
+    req.lineoffsets[0] = static_cast<unsigned int>(pin);
+    req.flags = GPIOHANDLE_REQUEST_OUTPUT;
+    req.lines = 1;
+    req.default_values[0] = 0;
+    strncpy(req.consumer_label, consumer, sizeof(req.consumer_label) - 1);
+    if (ioctl(chip_fd, GPIO_GET_LINEHANDLE_IOCTL, &req) < 0) {
+        throw std::runtime_error("GPIO_GET_LINEHANDLE_IOCTL failed pin=" + std::to_string(pin) + " errno=" + std::to_string(errno));
+    }
+    return req.fd;
+}
+
+static void gpiochip_init_lines() {
+    s_native.gpio_chip_fd = open("/dev/gpiochip0", O_RDWR | O_CLOEXEC);
+    if (s_native.gpio_chip_fd < 0) {
+        throw std::runtime_error("open /dev/gpiochip0 failed errno=" + std::to_string(errno));
+    }
+
+    s_native.dc_line_fd = gpiochip_request_line(s_native.gpio_chip_fd, s_native.dc_pin, "sslvgl-dc");
+    s_native.rst_line_fd = gpiochip_request_line(s_native.gpio_chip_fd, s_native.rst_pin, "sslvgl-rst");
+    s_native.bl_line_fd = gpiochip_request_line(s_native.gpio_chip_fd, s_native.bl_pin, "sslvgl-bl");
+    s_native.gpiochip_ready = true;
+}
+
+static void gpiochip_shutdown_lines() {
+    if (s_native.dc_line_fd >= 0) { close(s_native.dc_line_fd); s_native.dc_line_fd = -1; }
+    if (s_native.rst_line_fd >= 0) { close(s_native.rst_line_fd); s_native.rst_line_fd = -1; }
+    if (s_native.bl_line_fd >= 0) { close(s_native.bl_line_fd); s_native.bl_line_fd = -1; }
+    if (s_native.gpio_chip_fd >= 0) { close(s_native.gpio_chip_fd); s_native.gpio_chip_fd = -1; }
+    s_native.gpiochip_ready = false;
+}
+
+static int gpio_line_fd_for_pin(int pin) {
+    if (pin == s_native.dc_pin) return s_native.dc_line_fd;
+    if (pin == s_native.rst_pin) return s_native.rst_line_fd;
+    if (pin == s_native.bl_pin) return s_native.bl_line_fd;
+    return -1;
+}
+
 static void gpio_write_value(int pin, bool high) {
+    if (s_native.gpiochip_ready) {
+        int fd = gpio_line_fd_for_pin(pin);
+        if (fd < 0) {
+            throw std::runtime_error("gpio line fd missing for pin " + std::to_string(pin));
+        }
+        struct gpiohandle_data data;
+        memset(&data, 0, sizeof(data));
+        data.values[0] = high ? 1 : 0;
+        if (ioctl(fd, GPIOHANDLE_SET_LINE_VALUES_IOCTL, &data) < 0) {
+            throw std::runtime_error("GPIOHANDLE_SET_LINE_VALUES_IOCTL failed pin=" + std::to_string(pin) + " errno=" + std::to_string(errno));
+        }
+        return;
+    }
+
     write_text_file("/sys/class/gpio/gpio" + std::to_string(pin) + "/value", high ? "1" : "0");
 }
 
@@ -642,11 +708,14 @@ static void native_display_shutdown_internal() {
         s_native.spi_fd = -1;
     }
 
-    if (s_native.ready) {
+    if (s_native.gpiochip_ready) {
+        gpiochip_shutdown_lines();
+    } else if (s_native.ready) {
         try { gpio_unexport_pin(s_native.dc_pin); } catch (...) {}
         try { gpio_unexport_pin(s_native.rst_pin); } catch (...) {}
         try { gpio_unexport_pin(s_native.bl_pin); } catch (...) {}
     }
+
     s_native.ready = false;
 }
 
@@ -676,12 +745,24 @@ static PyObject *py_native_display_init(PyObject *self, PyObject *args, PyObject
         s_native.bl_pin = bl_pin;
         s_native.speed_hz = spi_speed_hz;
 
-        gpio_export_pin(s_native.dc_pin);
-        gpio_export_pin(s_native.rst_pin);
-        gpio_export_pin(s_native.bl_pin);
-        gpio_set_dir_out(s_native.dc_pin);
-        gpio_set_dir_out(s_native.rst_pin);
-        gpio_set_dir_out(s_native.bl_pin);
+        try {
+            gpiochip_init_lines();
+#if LV_USE_LOG
+            LV_LOG_USER("native gpio backend: gpiochip");
+#endif
+        } catch (const std::exception &) {
+            gpiochip_shutdown_lines();
+            // Fallback for environments where gpiochip access is unavailable.
+            gpio_export_pin(s_native.dc_pin);
+            gpio_export_pin(s_native.rst_pin);
+            gpio_export_pin(s_native.bl_pin);
+            gpio_set_dir_out(s_native.dc_pin);
+            gpio_set_dir_out(s_native.rst_pin);
+            gpio_set_dir_out(s_native.bl_pin);
+#if LV_USE_LOG
+            LV_LOG_USER("native gpio backend: sysfs fallback");
+#endif
+        }
 
         s_native.spi_fd = open(spi_path, O_RDWR | O_CLOEXEC);
         if (s_native.spi_fd < 0) {
