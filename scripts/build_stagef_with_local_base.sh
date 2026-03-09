@@ -25,8 +25,8 @@ docker run --rm --platform "${PLATFORM}" \
   -e RUN_TS="${RUN_TS}" \
   -e ABI_JSON="${ABI_JSON:-/workspace/dev/seedsigner-raspi-lvgl/docs/abi/dev-pi-abi.json}" \
   -e LOCK_FILE="${LOCK_FILE:-/workspace/dev/seedsigner-raspi-lvgl/versions.lock.toml}" \
-  -e SEEDSIGNER_C_MODULES_DIR="${SEEDSIGNER_C_MODULES_DIR:-/workspace/dev/seedsigner-micropython-builder/sources/seedsigner-c-modules}" \
-  -e LVGL_ROOT="${LVGL_ROOT:-}" \
+  -e SEEDSIGNER_C_MODULES_DIR="${SEEDSIGNER_C_MODULES_DIR:-/workspace/dev/seedsigner-c-modules}" \
+  -e LVGL_ROOT="${LVGL_ROOT:-/workspace/dev/lvgl}" \
   "${IMAGE_TAG}" \
   bash ./scripts/stagef_emu_build.sh
 
