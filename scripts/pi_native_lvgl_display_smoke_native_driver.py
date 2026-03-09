@@ -18,6 +18,7 @@ def main() -> int:
 
     # Native backend owns SPI+GPIO directly.
     lv.native_display_init(width=240, height=240, dc_pin=22, rst_pin=13, bl_pin=18, spi_path="/dev/spidev0.0", spi_speed_hz=40_000_000)
+    lv.native_debug_config(enabled=True, flush_log_limit=20)
     lv.set_flush_mode("native")
 
     lv.lvgl_init(hor_res=240, ver_res=240)

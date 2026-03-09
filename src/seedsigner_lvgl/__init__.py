@@ -60,6 +60,18 @@ def native_display_shutdown():
     return _native.native_display_shutdown()
 
 
+def native_display_test_pattern():
+    if _native is None:
+        raise NotImplementedError("Native binding not available.")
+    return _native.native_display_test_pattern()
+
+
+def native_debug_config(enabled=True, flush_log_limit=20):
+    if _native is None:
+        raise NotImplementedError("Native binding not available.")
+    return _native.native_debug_config(enabled=enabled, flush_log_limit=flush_log_limit)
+
+
 def set_flush_mode(mode):
     if _native is None:
         raise NotImplementedError("Native binding not available.")
@@ -101,6 +113,8 @@ __all__ = [
     "set_flush_callback",
     "native_display_init",
     "native_display_shutdown",
+    "native_display_test_pattern",
+    "native_debug_config",
     "set_flush_mode",
     "bind_display",
     "button_list_screen",
