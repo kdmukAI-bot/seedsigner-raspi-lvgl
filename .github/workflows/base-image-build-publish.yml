@@ -141,19 +141,21 @@ jobs:
         run: |
           set -euo pipefail
           IMAGE="local/stagef-armv6-smoke:${{ github.run_id }}"
-          docker run --rm --platform linux/arm/v6 "$IMAGE" python3 - <<'PY' > abi-smoke.json
-          import json
-          import platform
-          import sysconfig
 
-          out = {
-              "platform_machine": platform.machine(),
-              "python_version": platform.python_version(),
-              "soabi": sysconfig.get_config_var("SOABI"),
-              "ext_suffix": sysconfig.get_config_var("EXT_SUFFIX"),
-          }
-          print(json.dumps(out, indent=2, sort_keys=True))
-          PY
+          docker run --rm --platform linux/arm/v6 "$IMAGE" \
+            python3 -c "import json,platform,sysconfig; print(json.dumps({'platform_machine': platform.machine(), 'python_version': platform.python_version(), 'soabi': sysconfig.get_config_var('SOABI'), 'ext_suffix': sysconfig.get_config_var('EXT_SUFFIX')}, sort_keys=True))" \
+            > abi-smoke.json 2> abi-smoke.stderr || {
+              echo "ERROR: docker smoke command failed" >&2
+              cat abi-smoke.stderr || true
+              exit 1
+            }
+
+          if [[ ! -s abi-smoke.json ]]; then
+            echo "ERROR: abi-smoke.json is empty" >&2
+            echo "--- stderr ---"
+            cat abi-smoke.stderr || true
+            exit 1
+          fi
 
           cat abi-smoke.json
 
@@ -161,8 +163,15 @@ jobs:
           import json
           import sys
 
-          with open('abi-smoke.json', 'r', encoding='utf-8') as f:
-              d = json.load(f)
+          try:
+              with open('abi-smoke.json', 'r', encoding='utf-8') as f:
+                  d = json.load(f)
+          except Exception as e:
+              print(f"ERROR: failed to parse abi-smoke.json: {e}")
+              with open('abi-smoke.json', 'r', encoding='utf-8', errors='replace') as f:
+                  print('RAW abi-smoke.json:')
+                  print(f.read())
+              raise
 
           machine = (d.get('platform_machine') or '').lower()
           soabi = d.get('soabi') or ''
