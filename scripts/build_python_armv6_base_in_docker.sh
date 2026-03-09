@@ -4,7 +4,8 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PLATFORM="${PLATFORM:-linux/arm/v6}"
 PYTHON_VERSION="${PYTHON_VERSION:-3.10.10}"
-PY_SERIES="${PY_SERIES:-py310}"
+PY_SERIES="${PY_SERIES:-py310-dev}"
+GCC_MAJOR="${GCC_MAJOR:-8}"
 IMAGE_TAG_LOCAL="${IMAGE_TAG_LOCAL:-seedsigner-raspi-lvgl/python-armv6:${PY_SERIES}-local}"
 DOCKERFILE="${ROOT_DIR}/docker/Dockerfile.python-armv6-base"
 
@@ -16,7 +17,7 @@ exec > >(tee -a "${LOG_FILE}")
 exec 2>&1
 
 echo "[python-armv6-base] run_ts=${RUN_TS}"
-echo "[python-armv6-base] platform=${PLATFORM} python_version=${PYTHON_VERSION}"
+echo "[python-armv6-base] platform=${PLATFORM} python_version=${PYTHON_VERSION} gcc_major=${GCC_MAJOR}"
 echo "[python-armv6-base] image_tag=${IMAGE_TAG_LOCAL}"
 
 # Ensure binfmt is present for emulation builds on amd64 hosts.
@@ -26,6 +27,7 @@ docker build \
   --platform "${PLATFORM}" \
   -f "${DOCKERFILE}" \
   --build-arg "PYTHON_VERSION=${PYTHON_VERSION}" \
+  --build-arg "GCC_MAJOR=${GCC_MAJOR}" \
   -t "${IMAGE_TAG_LOCAL}" \
   "${ROOT_DIR}"
 

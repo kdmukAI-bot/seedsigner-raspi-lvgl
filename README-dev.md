@@ -128,9 +128,10 @@ Alternative (emulated ARM container) when cross headers/sysroot are unavailable:
 ```
 
 Notes:
-- Uses QEMU/binfmt + `--platform linux/arm/v7` with Python 3.10 bullseye base.
-- Build step now forces ARMv6 codegen flags (`-march=armv6zk -mtune=arm1176jzf-s -marm -mfpu=vfp -mfloat-abi=hard`).
+- Uses QEMU/binfmt + `--platform linux/arm/v7` with the locked `py310-dev` base image/toolchain.
+- Build step forces ARMv6 codegen flags (`-march=armv6zk -mtune=arm1176jzf-s -marm -mfpu=vfp -mfloat-abi=hard`).
 - Script verifies `readelf -A` includes ARMv6 CPU arch attribute and fails otherwise.
+- No ad-hoc runtime compiler install/workaround in Stage F emu path.
 - Slower than native/cross builds; still validate final artifacts on real Pi.
 
 Current limitations:

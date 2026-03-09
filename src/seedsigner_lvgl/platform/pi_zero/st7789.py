@@ -94,6 +94,19 @@ class ST7789Display:
 
         self.command(0x2C)
 
+    def blit_rgb565(self, x1: int, y1: int, x2: int, y2: int, buf: bytes) -> None:
+        if x2 < x1 or y2 < y1:
+            raise ValueError("invalid area")
+        w = x2 - x1 + 1
+        h = y2 - y1 + 1
+        expected = w * h * 2
+        if len(buf) != expected:
+            raise ValueError(f"buf must be exactly {expected} bytes for area {w}x{h}")
+
+        self.set_window(x1, y1, x2 + 1, y2 + 1)
+        self.gpio.output(self.cfg.dc_pin, self.gpio.HIGH)
+        self.spi.writebytes2(buf)
+
     def show_rgb565_frame(self, frame: bytes) -> None:
         expected = self.cfg.width * self.cfg.height * 2
         if len(frame) != expected:
