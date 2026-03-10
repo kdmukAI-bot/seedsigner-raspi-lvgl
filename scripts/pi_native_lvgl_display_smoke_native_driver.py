@@ -27,6 +27,8 @@ def main() -> int:
     cfg = {
         "top_nav": {"title": "Native Driver", "show_back_button": True, "show_power_button": True},
         "button_list": ["Alpha", "Beta", "Gamma"],
+        "wait_timeout_ms": 10000,
+        "allow_timeout_fallback": False,
     }
 
     print("[native-driver-smoke] render + wait for event")

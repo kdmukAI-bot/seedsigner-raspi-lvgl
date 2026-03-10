@@ -34,6 +34,8 @@ def main() -> int:
     cfg = {
         "top_nav": {"title": "Pi Runtime Smoke", "show_back_button": True, "show_power_button": False},
         "button_list": ["Alpha", "Beta", "Gamma"],
+        "wait_timeout_ms": 10000,
+        "allow_timeout_fallback": False,
     }
 
     try:
