@@ -155,6 +155,13 @@ Expected visual sequence:
 2. Black frame
 3. Checkerboard frame
 
+## Input behavior spec
+
+For the canonical Pi hardware button/joystick behavior contract, see:
+- `docs/input-button-behavior.md`
+
+Use this spec as source-of-truth for navigation semantics (top-nav/body zones, directional rules, and KEY1/2/3 policy), even when implementation work spans into C modules.
+
 ## Pi hardware smoke test (input)
 
 Run this on Pi target hardware (with `RPi.GPIO` installed):
