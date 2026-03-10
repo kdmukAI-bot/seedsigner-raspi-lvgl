@@ -88,6 +88,7 @@ static native_display_t s_native = {
 };
 
 static bool s_use_native_flush = false;
+static bool s_native_lvgl_swap_bytes = true;
 static bool s_native_debug_log = false;
 static uint32_t s_native_flush_log_limit = 20;
 static uint32_t s_native_flush_log_count = 0;
@@ -385,7 +386,17 @@ static void flush_cb(lv_disp_drv_t *disp_drv, const lv_area_t *area, lv_color_t 
         }
 
         try {
-            native_display_blit(area->x1, area->y1, area->x2, area->y2, reinterpret_cast<const uint8_t *>(color_p), nbytes);
+            const uint8_t *src = reinterpret_cast<const uint8_t *>(color_p);
+            std::vector<uint8_t> swapped;
+            if (s_native_lvgl_swap_bytes) {
+                swapped.resize(nbytes);
+                for (size_t i = 0; i + 1 < nbytes; i += 2) {
+                    swapped[i] = src[i + 1];
+                    swapped[i + 1] = src[i];
+                }
+                src = swapped.data();
+            }
+            native_display_blit(area->x1, area->y1, area->x2, area->y2, src, nbytes);
         } catch (const std::exception &e) {
             fprintf(stderr, "[seedsigner_lvgl_native] native flush failed: %s\n", e.what());
         }
@@ -731,7 +742,7 @@ static void native_display_shutdown_internal() {
 
 static PyObject *py_native_display_init(PyObject *self, PyObject *args, PyObject *kwargs) {
     (void)self;
-    static const char *kwlist[] = {"width", "height", "dc_pin", "rst_pin", "bl_pin", "spi_path", "spi_speed_hz", "bgr", NULL};
+    static const char *kwlist[] = {"width", "height", "dc_pin", "rst_pin", "bl_pin", "spi_path", "spi_speed_hz", "bgr", "lvgl_swap_bytes", NULL};
     unsigned int width = 240;
     unsigned int height = 240;
     int dc_pin = 25;
@@ -740,9 +751,10 @@ static PyObject *py_native_display_init(PyObject *self, PyObject *args, PyObject
     const char *spi_path = "/dev/spidev0.0";
     unsigned int spi_speed_hz = 40000000;
     int bgr = 0;
+    int lvgl_swap_bytes = 1;
 
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|IIiiisIp", const_cast<char **>(kwlist),
-                                     &width, &height, &dc_pin, &rst_pin, &bl_pin, &spi_path, &spi_speed_hz, &bgr)) {
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|IIiiisIpp", const_cast<char **>(kwlist),
+                                     &width, &height, &dc_pin, &rst_pin, &bl_pin, &spi_path, &spi_speed_hz, &bgr, &lvgl_swap_bytes)) {
         return NULL;
     }
 
@@ -756,6 +768,7 @@ static PyObject *py_native_display_init(PyObject *self, PyObject *args, PyObject
         s_native.bl_pin = bl_pin;
         s_native.speed_hz = spi_speed_hz;
         s_native.bgr = (bgr != 0);
+        s_native_lvgl_swap_bytes = (lvgl_swap_bytes != 0);
 
         try {
             gpiochip_init_lines();
