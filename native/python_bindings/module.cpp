@@ -1091,6 +1091,33 @@ static PyObject *py_poll_for_result(PyObject *self, PyObject *args) {
     return Py_BuildValue("(sis)", kind_to_event_name(ev.kind), ev.index, ev.label);
 }
 
+static unsigned int cfg_wait_timeout_ms(PyObject *cfg, unsigned int default_ms) {
+    PyObject *obj = PyDict_GetItemString(cfg, "wait_timeout_ms");
+    if (!obj) {
+        return default_ms;
+    }
+    if (!PyLong_Check(obj)) {
+        throw std::runtime_error("wait_timeout_ms must be an integer");
+    }
+    long v = PyLong_AsLong(obj);
+    if (v < 0) {
+        throw std::runtime_error("wait_timeout_ms must be >= 0");
+    }
+    return static_cast<unsigned int>(v);
+}
+
+static bool cfg_allow_timeout_fallback(PyObject *cfg, bool default_enabled) {
+    PyObject *obj = PyDict_GetItemString(cfg, "allow_timeout_fallback");
+    if (!obj) {
+        return default_enabled;
+    }
+    int truth = PyObject_IsTrue(obj);
+    if (truth < 0) {
+        throw std::runtime_error("allow_timeout_fallback must be bool-like");
+    }
+    return truth != 0;
+}
+
 static PyObject *py_button_list_screen(PyObject *self, PyObject *args) {
     (void)self;
 
@@ -1103,14 +1130,17 @@ static PyObject *py_button_list_screen(PyObject *self, PyObject *args) {
         validate_cfg(cfg);
         require_lvgl_runtime();
 
+        const unsigned int wait_timeout_ms = cfg_wait_timeout_ms(cfg, 250);
+        const bool allow_timeout_fallback = cfg_allow_timeout_fallback(cfg, true);
+
         std::string cfg_json = py_cfg_to_json(cfg);
         button_list_screen((void *)cfg_json.c_str());
         attach_active_screen_to_input_group();
         s_last_path = "compiled";
 
-        run_lvgl_until_result_or_timeout(250);
+        run_lvgl_until_result_or_timeout(wait_timeout_ms);
 
-        if (s_count == 0) {
+        if (s_count == 0 && allow_timeout_fallback) {
             char label_buf[RESULT_LABEL_MAX];
             const char *label = extract_first_label(cfg, label_buf, sizeof(label_buf));
             queue_push(RESULT_BUTTON_SELECTED, 0, label);
