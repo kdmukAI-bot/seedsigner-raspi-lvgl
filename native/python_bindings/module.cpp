@@ -83,7 +83,7 @@ static native_display_t s_native = {
     .bits_per_word = 8,
     .width = 240,
     .height = 240,
-    .bgr = true,
+    .bgr = false,
     .ready = false,
 };
 
@@ -739,7 +739,7 @@ static PyObject *py_native_display_init(PyObject *self, PyObject *args, PyObject
     int bl_pin = 24;
     const char *spi_path = "/dev/spidev0.0";
     unsigned int spi_speed_hz = 40000000;
-    int bgr = 1;
+    int bgr = 0;
 
     if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|IIiiisIp", const_cast<char **>(kwlist),
                                      &width, &height, &dc_pin, &rst_pin, &bl_pin, &spi_path, &spi_speed_hz, &bgr)) {
