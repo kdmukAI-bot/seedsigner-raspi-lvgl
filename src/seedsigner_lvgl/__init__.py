@@ -40,7 +40,7 @@ def native_display_init(
     bl_pin=24,
     spi_path="/dev/spidev0.0",
     spi_speed_hz=40_000_000,
-    bgr=True,
+    bgr=False,
 ):
     if _native is None:
         raise NotImplementedError("Native binding not available.")
