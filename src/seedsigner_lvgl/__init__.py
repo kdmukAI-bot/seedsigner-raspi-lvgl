@@ -41,6 +41,7 @@ def native_display_init(
     spi_path="/dev/spidev0.0",
     spi_speed_hz=40_000_000,
     bgr=False,
+    lvgl_swap_bytes=True,
 ):
     if _native is None:
         raise NotImplementedError("Native binding not available.")
@@ -53,6 +54,7 @@ def native_display_init(
         spi_path=spi_path,
         spi_speed_hz=spi_speed_hz,
         bgr=bgr,
+        lvgl_swap_bytes=lvgl_swap_bytes,
     )
 
 
