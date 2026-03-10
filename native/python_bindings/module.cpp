@@ -64,6 +64,7 @@ struct native_display_t {
     uint8_t bits_per_word;
     uint32_t width;
     uint32_t height;
+    bool bgr;
     bool ready;
 };
 
@@ -74,14 +75,15 @@ static native_display_t s_native = {
     .rst_line_fd = -1,
     .bl_line_fd = -1,
     .gpiochip_ready = false,
-    .dc_pin = 22,
-    .rst_pin = 13,
-    .bl_pin = 18,
+    .dc_pin = 25,
+    .rst_pin = 27,
+    .bl_pin = 24,
     .speed_hz = 40000000,
     .mode = 0,
     .bits_per_word = 8,
     .width = 240,
     .height = 240,
+    .bgr = true,
     .ready = false,
 };
 
@@ -252,17 +254,25 @@ static void native_spi_write(const uint8_t *data, size_t len) {
     size_t off = 0;
     while (off < len) {
         size_t nreq = (len - off > kChunk) ? kChunk : (len - off);
-        ssize_t n = write(s_native.spi_fd, data + off, nreq);
-        if (n < 0) {
+
+        struct spi_ioc_transfer tr;
+        memset(&tr, 0, sizeof(tr));
+        tr.tx_buf = reinterpret_cast<unsigned long>(data + off);
+        tr.rx_buf = 0;
+        tr.len = static_cast<__u32>(nreq);
+        tr.speed_hz = s_native.speed_hz;
+        tr.bits_per_word = s_native.bits_per_word;
+        tr.delay_usecs = 0;
+        tr.cs_change = 0;
+
+        int rc = ioctl(s_native.spi_fd, SPI_IOC_MESSAGE(1), &tr);
+        if (rc < 0) {
             if (errno == EINTR) {
                 continue;
             }
-            throw std::runtime_error("SPI write failed errno=" + std::to_string(errno));
+            throw std::runtime_error("SPI_IOC_MESSAGE failed errno=" + std::to_string(errno));
         }
-        if (n == 0) {
-            throw std::runtime_error("SPI write returned 0 bytes");
-        }
-        off += static_cast<size_t>(n);
+        off += nreq;
     }
 }
 
@@ -304,7 +314,7 @@ static void native_hw_reset() {
 
 static void native_display_init_sequence() {
     native_cmd(0x36);
-    native_data_byte(0x70);
+    native_data_byte(s_native.bgr ? 0x78 : 0x70);
     native_cmd(0x3A);
     native_data_byte(0x05);
     native_cmd(0x21);
@@ -721,17 +731,18 @@ static void native_display_shutdown_internal() {
 
 static PyObject *py_native_display_init(PyObject *self, PyObject *args, PyObject *kwargs) {
     (void)self;
-    static const char *kwlist[] = {"width", "height", "dc_pin", "rst_pin", "bl_pin", "spi_path", "spi_speed_hz", NULL};
+    static const char *kwlist[] = {"width", "height", "dc_pin", "rst_pin", "bl_pin", "spi_path", "spi_speed_hz", "bgr", NULL};
     unsigned int width = 240;
     unsigned int height = 240;
-    int dc_pin = 22;
-    int rst_pin = 13;
-    int bl_pin = 18;
+    int dc_pin = 25;
+    int rst_pin = 27;
+    int bl_pin = 24;
     const char *spi_path = "/dev/spidev0.0";
     unsigned int spi_speed_hz = 40000000;
+    int bgr = 1;
 
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|IIiiisI", const_cast<char **>(kwlist),
-                                     &width, &height, &dc_pin, &rst_pin, &bl_pin, &spi_path, &spi_speed_hz)) {
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|IIiiisIp", const_cast<char **>(kwlist),
+                                     &width, &height, &dc_pin, &rst_pin, &bl_pin, &spi_path, &spi_speed_hz, &bgr)) {
         return NULL;
     }
 
@@ -744,6 +755,7 @@ static PyObject *py_native_display_init(PyObject *self, PyObject *args, PyObject
         s_native.rst_pin = rst_pin;
         s_native.bl_pin = bl_pin;
         s_native.speed_hz = spi_speed_hz;
+        s_native.bgr = (bgr != 0);
 
         try {
             gpiochip_init_lines();

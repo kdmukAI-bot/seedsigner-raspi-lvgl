@@ -35,11 +35,12 @@ def set_flush_callback(cb=None):
 def native_display_init(
     width=240,
     height=240,
-    dc_pin=22,
-    rst_pin=13,
-    bl_pin=18,
+    dc_pin=25,
+    rst_pin=27,
+    bl_pin=24,
     spi_path="/dev/spidev0.0",
     spi_speed_hz=40_000_000,
+    bgr=True,
 ):
     if _native is None:
         raise NotImplementedError("Native binding not available.")
@@ -51,6 +52,7 @@ def native_display_init(
         bl_pin=bl_pin,
         spi_path=spi_path,
         spi_speed_hz=spi_speed_hz,
+        bgr=bgr,
     )
 
 
