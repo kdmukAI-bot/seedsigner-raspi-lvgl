@@ -43,6 +43,8 @@ static unsigned int s_count = 0;
 static bool s_lvgl_inited = false;
 static lv_disp_draw_buf_t s_draw_buf;
 static lv_color_t s_buf1[240 * 10];
+static lv_group_t *s_input_group = NULL;
+static lv_indev_t *s_input_indev = NULL;
 static uint64_t s_last_tick_ms = 0;
 static uint32_t s_hor_res = 240;
 static uint32_t s_ver_res = 240;
@@ -85,6 +87,48 @@ static native_display_t s_native = {
     .height = 240,
     .bgr = false,
     .ready = false,
+};
+
+typedef struct {
+    int up_pin;
+    int down_pin;
+    int left_pin;
+    int right_pin;
+    int press_pin;
+    int key1_pin;
+    int key2_pin;
+    int key3_pin;
+    int up_fd;
+    int down_fd;
+    int left_fd;
+    int right_fd;
+    int press_fd;
+    int key1_fd;
+    int key2_fd;
+    int key3_fd;
+    bool ready;
+    uint32_t last_key;
+} native_input_t;
+
+static native_input_t s_input = {
+    .up_pin = 6,
+    .down_pin = 19,
+    .left_pin = 5,
+    .right_pin = 26,
+    .press_pin = 13,
+    .key1_pin = 21,
+    .key2_pin = 20,
+    .key3_pin = 16,
+    .up_fd = -1,
+    .down_fd = -1,
+    .left_fd = -1,
+    .right_fd = -1,
+    .press_fd = -1,
+    .key1_fd = -1,
+    .key2_fd = -1,
+    .key3_fd = -1,
+    .ready = false,
+    .last_key = LV_KEY_ENTER,
 };
 
 static bool s_use_native_flush = false;
@@ -201,6 +245,28 @@ static int gpiochip_request_line(int chip_fd, int pin, const char *consumer) {
     return req.fd;
 }
 
+static int gpiochip_request_input_line(int chip_fd, int pin, const char *consumer) {
+    struct gpiohandle_request req;
+    memset(&req, 0, sizeof(req));
+    req.lineoffsets[0] = static_cast<unsigned int>(pin);
+    req.flags = GPIOHANDLE_REQUEST_INPUT;
+    req.lines = 1;
+    strncpy(req.consumer_label, consumer, sizeof(req.consumer_label) - 1);
+    if (ioctl(chip_fd, GPIO_GET_LINEHANDLE_IOCTL, &req) < 0) {
+        throw std::runtime_error("GPIO_GET_LINEHANDLE_IOCTL(input) failed pin=" + std::to_string(pin) + " errno=" + std::to_string(errno));
+    }
+    return req.fd;
+}
+
+static int gpio_line_read(int fd) {
+    struct gpiohandle_data data;
+    memset(&data, 0, sizeof(data));
+    if (ioctl(fd, GPIOHANDLE_GET_LINE_VALUES_IOCTL, &data) < 0) {
+        throw std::runtime_error("GPIOHANDLE_GET_LINE_VALUES_IOCTL failed errno=" + std::to_string(errno));
+    }
+    return data.values[0];
+}
+
 static void gpiochip_init_lines() {
     s_native.gpio_chip_fd = open("/dev/gpiochip0", O_RDWR | O_CLOEXEC);
     if (s_native.gpio_chip_fd < 0) {
@@ -244,6 +310,76 @@ static void gpio_write_value(int pin, bool high) {
     }
 
     write_text_file("/sys/class/gpio/gpio" + std::to_string(pin) + "/value", high ? "1" : "0");
+}
+
+static void native_input_shutdown() {
+    if (s_input.up_fd >= 0) { close(s_input.up_fd); s_input.up_fd = -1; }
+    if (s_input.down_fd >= 0) { close(s_input.down_fd); s_input.down_fd = -1; }
+    if (s_input.left_fd >= 0) { close(s_input.left_fd); s_input.left_fd = -1; }
+    if (s_input.right_fd >= 0) { close(s_input.right_fd); s_input.right_fd = -1; }
+    if (s_input.press_fd >= 0) { close(s_input.press_fd); s_input.press_fd = -1; }
+    if (s_input.key1_fd >= 0) { close(s_input.key1_fd); s_input.key1_fd = -1; }
+    if (s_input.key2_fd >= 0) { close(s_input.key2_fd); s_input.key2_fd = -1; }
+    if (s_input.key3_fd >= 0) { close(s_input.key3_fd); s_input.key3_fd = -1; }
+    s_input.ready = false;
+}
+
+static void native_input_init() {
+    if (!s_native.gpiochip_ready) {
+        return;
+    }
+    native_input_shutdown();
+    s_input.up_fd = gpiochip_request_input_line(s_native.gpio_chip_fd, s_input.up_pin, "sslvgl-in-up");
+    s_input.down_fd = gpiochip_request_input_line(s_native.gpio_chip_fd, s_input.down_pin, "sslvgl-in-down");
+    s_input.left_fd = gpiochip_request_input_line(s_native.gpio_chip_fd, s_input.left_pin, "sslvgl-in-left");
+    s_input.right_fd = gpiochip_request_input_line(s_native.gpio_chip_fd, s_input.right_pin, "sslvgl-in-right");
+    s_input.press_fd = gpiochip_request_input_line(s_native.gpio_chip_fd, s_input.press_pin, "sslvgl-in-press");
+    s_input.key1_fd = gpiochip_request_input_line(s_native.gpio_chip_fd, s_input.key1_pin, "sslvgl-in-key1");
+    s_input.key2_fd = gpiochip_request_input_line(s_native.gpio_chip_fd, s_input.key2_pin, "sslvgl-in-key2");
+    s_input.key3_fd = gpiochip_request_input_line(s_native.gpio_chip_fd, s_input.key3_pin, "sslvgl-in-key3");
+    s_input.ready = true;
+}
+
+static void native_input_read_cb(lv_indev_drv_t *drv, lv_indev_data_t *data) {
+    (void)drv;
+    if (!s_input.ready) {
+        data->state = LV_INDEV_STATE_REL;
+        data->key = s_input.last_key;
+        return;
+    }
+
+    struct key_map_entry_t { int fd; uint32_t key; };
+    const key_map_entry_t keys[] = {
+        {s_input.up_fd, LV_KEY_UP},
+        {s_input.down_fd, LV_KEY_DOWN},
+        {s_input.left_fd, LV_KEY_LEFT},
+        {s_input.right_fd, LV_KEY_RIGHT},
+        {s_input.press_fd, LV_KEY_ENTER},
+        {s_input.key1_fd, LV_KEY_ESC},
+        {s_input.key2_fd, LV_KEY_ENTER},
+        {s_input.key3_fd, LV_KEY_HOME},
+    };
+
+    for (const auto &km : keys) {
+        if (km.fd < 0) {
+            continue;
+        }
+        int v = 1;
+        try {
+            v = gpio_line_read(km.fd);
+        } catch (...) {
+            continue;
+        }
+        if (v == 0) {  // active-low
+            s_input.last_key = km.key;
+            data->key = km.key;
+            data->state = LV_INDEV_STATE_PRESSED;
+            return;
+        }
+    }
+
+    data->key = s_input.last_key;
+    data->state = LV_INDEV_STATE_REL;
 }
 
 static void native_spi_write(const uint8_t *data, size_t len) {
@@ -468,6 +604,20 @@ static void ensure_lvgl_runtime() {
     disp_drv.draw_buf = &s_draw_buf;
     lv_disp_drv_register(&disp_drv);
 
+    if (s_input_group == NULL) {
+        s_input_group = lv_group_create();
+        lv_group_set_default(s_input_group);
+    }
+
+    static lv_indev_drv_t indev_drv;
+    lv_indev_drv_init(&indev_drv);
+    indev_drv.type = LV_INDEV_TYPE_KEYPAD;
+    indev_drv.read_cb = native_input_read_cb;
+    s_input_indev = lv_indev_drv_register(&indev_drv);
+    if (s_input_indev && s_input_group) {
+        lv_indev_set_group(s_input_indev, s_input_group);
+    }
+
     s_last_tick_ms = now_ms();
     s_lvgl_inited = true;
 }
@@ -638,6 +788,32 @@ static void lvgl_runtime_pump(unsigned int duration_ms, unsigned int sleep_ms) {
     }
 }
 
+static void group_add_buttons_recursive(lv_obj_t *obj) {
+    if (!obj || !s_input_group) {
+        return;
+    }
+    if (lv_obj_check_type(obj, &lv_btn_class)) {
+        lv_group_add_obj(s_input_group, obj);
+    }
+    uint32_t cnt = lv_obj_get_child_cnt(obj);
+    for (uint32_t i = 0; i < cnt; ++i) {
+        lv_obj_t *child = lv_obj_get_child(obj, i);
+        group_add_buttons_recursive(child);
+    }
+}
+
+static void attach_active_screen_to_input_group() {
+    if (!s_input_group) {
+        return;
+    }
+    lv_obj_t *scr = lv_scr_act();
+    if (!scr) {
+        return;
+    }
+    group_add_buttons_recursive(scr);
+    lv_group_focus_next(s_input_group);
+}
+
 static void run_lvgl_until_result_or_timeout(unsigned int timeout_ms) {
     auto start = std::chrono::steady_clock::now();
     while (s_count == 0) {
@@ -724,6 +900,8 @@ static PyObject *py_set_flush_callback(PyObject *self, PyObject *args) {
 }
 
 static void native_display_shutdown_internal() {
+    native_input_shutdown();
+
     if (s_native.spi_fd >= 0) {
         close(s_native.spi_fd);
         s_native.spi_fd = -1;
@@ -807,6 +985,14 @@ static PyObject *py_native_display_init(PyObject *self, PyObject *args, PyObject
         gpio_write_value(s_native.bl_pin, true);
         native_hw_reset();
         native_display_init_sequence();
+
+        // Input (joystick/buttons) is best-effort for now; display can run without it.
+        try {
+            native_input_init();
+        } catch (const std::exception &e) {
+            fprintf(stderr, "[seedsigner_lvgl_native] native input init skipped: %s\n", e.what());
+            native_input_shutdown();
+        }
 
         s_native.ready = true;
         s_use_native_flush = true;
@@ -919,6 +1105,7 @@ static PyObject *py_button_list_screen(PyObject *self, PyObject *args) {
 
         std::string cfg_json = py_cfg_to_json(cfg);
         button_list_screen((void *)cfg_json.c_str());
+        attach_active_screen_to_input_group();
         s_last_path = "compiled";
 
         run_lvgl_until_result_or_timeout(250);
