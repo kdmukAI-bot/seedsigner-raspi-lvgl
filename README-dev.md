@@ -103,6 +103,12 @@ Run Stage F using base image (defaults to GHCR `py310-dev` tag):
 ./scripts/build_stagef_with_local_base.sh
 ```
 
+> **Pi Zero target requirement:** when targeting Pi Zero hardware artifacts, use
+> `./scripts/build_stagef_with_local_base.sh` (GHCR ARMv6 base) as the required
+> Stage F build entrypoint. Do **not** use `build_stagef_emu_in_docker.sh` for
+> Pi Zero release-target builds, since that path runs `linux/arm/v7` emulation
+> and can produce artifacts that fail ARMv6 compatibility gating.
+
 Override image source when needed (e.g., local image):
 
 ```bash

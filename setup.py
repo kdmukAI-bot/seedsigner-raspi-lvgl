@@ -106,6 +106,8 @@ ext_modules = [
         sources=[
             "native/python_bindings/module.cpp",
             str(SEEDSIGNER_DIR / "components.cpp"),
+            str(SEEDSIGNER_DIR / "input_profile.cpp"),
+            str(SEEDSIGNER_DIR / "navigation.cpp"),
             str(SEEDSIGNER_DIR / "seedsigner.cpp"),
             *font_paths,
             *lvgl_sources,
