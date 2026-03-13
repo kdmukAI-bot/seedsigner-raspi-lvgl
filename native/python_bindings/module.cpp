@@ -1135,7 +1135,9 @@ static PyObject *py_button_list_screen(PyObject *self, PyObject *args) {
 
         std::string cfg_json = py_cfg_to_json(cfg);
         button_list_screen((void *)cfg_json.c_str());
-        attach_active_screen_to_input_group();
+        // SeedSigner C modules are the source of truth for navigation/focus wiring.
+        // button_list_screen() already binds navigation via nav_bind(), including
+        // indev/group ownership. Do not attach a parallel binding-layer group here.
         s_last_path = "compiled";
 
         run_lvgl_until_result_or_timeout(wait_timeout_ms);
