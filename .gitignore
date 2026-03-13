@@ -1,3 +1,10 @@
+# Secrets / credentials
+.env
+*.env
+*.key
+*.pem
+secrets/
+
 __pycache__/
 *.py[cod]
 .venv/
@@ -11,3 +18,4 @@ logs/
 .venv-asan/
 *.core
 qemu_python*.core
+CLAUDE.md
