@@ -8,3 +8,6 @@ build/
 logs/
 *.so
 *.egg-info/
+.venv-asan/
+*.core
+qemu_python*.core
