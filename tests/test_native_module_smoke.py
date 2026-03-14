@@ -12,7 +12,12 @@ def test_native_module_import_and_queue_semantics():
     mod.clear_result_queue()
     assert mod.poll_for_result() is None
 
-    mod.button_list_screen({"top_nav": {"title": "Menu"}, "button_list": ["First"]})
+    mod.button_list_screen({
+        "top_nav": {"title": "Menu"},
+        "button_list": ["First"],
+        "wait_timeout_ms": 250,
+        "allow_timeout_fallback": True,
+    })
     event = mod.poll_for_result()
     assert event is not None
     assert event[0] in ("button_selected", "topnav_back", "topnav_power")
@@ -38,4 +43,9 @@ def test_button_list_requires_explicit_init():
 
     mod.lvgl_shutdown()
     with pytest.raises(RuntimeError):
-        mod.button_list_screen({"top_nav": {"title": "Menu"}, "button_list": ["First"]})
+        mod.button_list_screen({
+            "top_nav": {"title": "Menu"},
+            "button_list": ["First"],
+            "wait_timeout_ms": 250,
+            "allow_timeout_fallback": True,
+        })
