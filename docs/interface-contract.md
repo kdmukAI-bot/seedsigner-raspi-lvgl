@@ -1,145 +1,72 @@
-# Interface Contract (Pi Zero LVGL ↔ Python View)
+# Interface Contract (Python View ↔ Compiled Screens)
 
-Defines the compatibility contract for invoking compiled LVGL Screens from Python View code.
+Defines the compatibility contract for invoking compiled LVGL screens from
+Python View code on Pi Zero.
 
-## Purpose
+## Binding model
 
-Pi Zero LVGL screens must present the same direct binding call semantics as the existing MicroPython C bindings so Python View logic can remain unchanged.
+- Python calls screen functions directly via the native extension (no RPC
+  envelope, no router, no server layer).
+- Config dict shape and result behavior must match MicroPython binding behavior.
+- Platform-specific internals (threading, SPI, GPIO) do not leak into the API.
 
-## Compatibility goals
-
-1. **Call shape parity**
-   - Screen invocation payload structure matches MicroPython binding expectations.
-2. **Event naming parity**
-   - Action/event names are identical across platforms.
-3. **Result parity**
-   - Returned JSON payload shape matches existing View expectations (e.g., selected value contracts).
-4. **Behavioral parity**
-   - Equivalent user actions produce equivalent event/result sequences.
-
-## Terminology
-
-- **View**: Python business/controller logic.
-- **Screen**: compiled LVGL display implementation.
-- **Binding**: direct C-exposed function callable from Python (no request/response server layer).
-
-## Binding model requirements
-
-- Python calls screen functions directly via bindings (e.g., `seedsigner_lvgl.button_list_screen(cfg_dict)`).
-- No generic invoke envelope, router, or middle request/response server is assumed.
-- Config dict shape and return/result behavior must match MicroPython binding behavior.
-- Invalid config must raise/return deterministic errors compatible with existing Python handling.
-- For Pi Zero target, hardware pin assignments may be hard-coded to match the existing Python display/buttons implementation (single supported hardware profile).
-
-## Shared-codebase direction
-
-Target architecture is a single Python codebase shared across:
-- Raspberry Pi Zero runtime (CPython)
-- Microcontroller runtime (MicroPython)
-
-The interface should remain stable and common across both environments, with platform-specific differences isolated to transport/runtime internals.
-
-## Required call-signature parity
-
-Screen invoke requests must match the existing MicroPython binding call signature, not a newly invented envelope.
-
-Current `button_list_screen` call pattern (from MicroPython bindings/tests):
-- Python calls: `seedsigner_lvgl.button_list_screen(cfg_dict)`
-- `cfg_dict` contains:
-  - `top_nav` object:
-    - `title` (string)
-    - `show_back_button` (bool)
-    - `show_power_button` (bool)
-  - `button_list`:
-    - list of labels (strings), or
-    - list of `(label, value)` tuples
-
-Reference instantiation style (must be preserved on Pi):
-```python
-seedsigner_lvgl.button_list_screen({
-    'top_nav': {
-        'title': 'Favorite Type of Pet',
-        'show_back_button': False,
-        'show_power_button': False,
-    },
-    'button_list': [
-        ('Dog', 'Dog'),
-        ('Cat', 'Cat'),
-        ('Fish', 'Fish'),
-    ]
-})
-```
-
-Typical use case on this target:
-- `top_nav.show_back_button = true`
-- `top_nav.show_power_button = false`
-- 2–3 body buttons in `button_list`
-
-Compatibility rule:
-- Pi runtime must accept this same call style and `cfg_dict` shape and produce equivalent result behavior expected by existing View code.
-
-## Direct call + result semantics
-
-### 1) Direct screen call (no invoke envelope)
+## Call signature: button_list_screen
 
 ```python
-seedsigner_lvgl.button_list_screen({
-    'top_nav': {
-        'title': 'Select network',
-        'show_back_button': True,
-        'show_power_button': False,
+import seedsigner_lvgl_native as mod
+
+mod.lvgl_init(hor_res=240, ver_res=240)
+mod.native_display_init()  # on Pi hardware
+
+mod.button_list_screen({
+    "top_nav": {
+        "title": "Select Network",
+        "show_back_button": True,
+        "show_power_button": False,
     },
-    'button_list': [
-        ('Mainnet', 'mainnet'),
-        ('Testnet', 'testnet'),
+    "button_list": [
+        ("Mainnet", "mainnet"),
+        ("Testnet", "testnet"),
     ],
+    # Optional overrides (default: wait forever for hardware input):
+    # "wait_timeout_ms": 0,
+    # "allow_timeout_fallback": False,
 })
+
+event = mod.poll_for_result()
+# → ("button_selected", 0, "Mainnet")
+# → ("topnav_back", -1, "topnav_back")
+# → ("topnav_power", -1, "topnav_power")
 ```
 
-### 2) Events/results exposed to View code
+### cfg_dict shape
 
-Required compatibility behavior:
-- `SELECT`, `KEY1`, `KEY2`, `KEY3` actions are visible to View logic with MicroPython-equivalent semantics.
-- Screen completion returns the selected value/result in the same structure expected by existing View flow.
-- Directional navigation (`UP/DOWN/LEFT/RIGHT`) is primarily internal to LVGL; optional mirroring to View is allowed where required.
+- `top_nav` (required dict): `title` (string, required), `show_back_button`
+  (bool), `show_power_button` (bool)
+- `button_list` (required list): strings or `(label, value)` tuples
+- `wait_timeout_ms` (optional int): milliseconds to wait for input; `0` = forever (default)
+- `allow_timeout_fallback` (optional bool): if true and timeout expires,
+  auto-select first button (default: false)
 
-Polling model requirement (match MicroPython bindings):
-- Python View code should poll for input/result events via a queue-style API, consistent with existing `clear_result_queue()` + `poll_for_result()` flow.
-- Result/event payload shapes must match current MicroPython expectations (e.g., `("button_selected", index, label)` patterns where applicable).
-- Do not replace polling with callback-only semantics in the shared View path.
+## Result semantics
 
-### 3) Error behavior
+Results are polled via `clear_result_queue()` + `poll_for_result()`:
 
-- Invalid config should produce deterministic, structured errors compatible with existing Python-side handling.
+| Event | Tuple shape |
+|-------|-------------|
+| Body button selected | `("button_selected", index, label)` |
+| Top-nav back | `("topnav_back", -1, "topnav_back")` |
+| Top-nav power | `("topnav_power", -1, "topnav_power")` |
+| No result yet | `None` |
 
-## Screen contract rules
+## Error behavior
 
-1. **Single active selection**
-   - At most one active/selected control at a time across top-nav + content.
-2. **Top-nav model**
-   - Top-nav has at most one action: `back` or `power` or none.
-3. **Navigation**
-   - `UP` from top content row transfers focus to top-nav (when present).
-   - `DOWN` from top-nav returns to prior content focus.
-4. **No long-press actions**
-   - Long-press action semantics are out of scope for current target.
-5. **Hold-repeat support**
-   - Directional hold-repeat supported with configured initial delay + repeat interval.
+Invalid config raises `RuntimeError` with a descriptive message:
+- Missing `top_nav` or `top_nav.title`
+- Missing or invalid `button_list`
+- LVGL runtime not initialized
 
-## Determinism requirements
+## Determinism
 
-- Given same screen config dict and same input sequence, output events/results must be deterministic.
-- Result payload ordering and key naming must be stable.
-- Time-dependent metadata should be excluded unless explicitly required.
-
-## Minimum compatibility test cases
-
-1. `button_list_screen` returns selected value in expected key.
-2. `key1/key2/key3` propagate to View as expected events.
-3. `select` activation emits/returns identical semantics to MicroPython bindings.
-4. Top-nav transitions (`UP`/`DOWN`) match navigation contract.
-5. Invalid params produce a stable structured error payload.
-
-## Implementation note
-
-This document defines the external contract. Platform-specific internals (threading, render loop, SPI backend details) must not leak into the JSON schema.
+Given the same config dict and input sequence, output events are deterministic.
+Result ordering and naming are stable.
