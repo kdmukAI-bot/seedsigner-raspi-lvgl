@@ -30,8 +30,8 @@ docker run --rm --platform "${PLATFORM}" \
   -e RUN_TS="${RUN_TS}" \
   -e ABI_JSON="${ABI_JSON:-${CONTAINER_REPO_DIR}/docs/abi/dev-pi-abi.json}" \
   -e LOCK_FILE="${LOCK_FILE:-${CONTAINER_REPO_DIR}/versions.lock.toml}" \
-  -e SEEDSIGNER_C_MODULES_DIR="${SEEDSIGNER_C_MODULES_DIR:-/workspace/dev/seedsigner-c-modules}" \
-  -e LVGL_ROOT="${LVGL_ROOT:-/workspace/dev/lvgl}" \
+  -e SEEDSIGNER_C_MODULES_DIR="${SEEDSIGNER_C_MODULES_DIR:-${CONTAINER_REPO_DIR}/sources/seedsigner-c-modules}" \
+  -e LVGL_ROOT="${LVGL_ROOT:-${CONTAINER_REPO_DIR}/sources/seedsigner-c-modules/third_party/lvgl}" \
   "${IMAGE_TAG}" \
   bash ./scripts/stagef_emu_build.sh
 

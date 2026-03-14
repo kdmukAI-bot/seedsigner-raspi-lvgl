@@ -8,14 +8,14 @@ from setuptools import Extension, setup
 
 ROOT = Path(__file__).resolve().parent
 
-DEFAULT_CMODULES = ROOT.parent / "seedsigner-micropython-builder" / "sources" / "seedsigner-c-modules"
+DEFAULT_CMODULES = ROOT / "sources" / "seedsigner-c-modules"
 SEEDSIGNER_C_MODULES_DIR = Path(os.environ.get("SEEDSIGNER_C_MODULES_DIR", str(DEFAULT_CMODULES))).resolve()
 
 _lvgl_env = os.environ.get("LVGL_ROOT")
 if _lvgl_env:
     LVGL_ROOT = Path(_lvgl_env).resolve()
 else:
-    LVGL_ROOT = (SEEDSIGNER_C_MODULES_DIR.parent / "micropython" / "ports" / "esp32" / "managed_components" / "lvgl__lvgl").resolve()
+    LVGL_ROOT = (SEEDSIGNER_C_MODULES_DIR / "third_party" / "lvgl").resolve()
 
 SEEDSIGNER_DIR = SEEDSIGNER_C_MODULES_DIR / "components" / "seedsigner"
 NLOHMANN_JSON_INCLUDE_DIR = SEEDSIGNER_C_MODULES_DIR / "components" / "nlohmann_json" / "include"
