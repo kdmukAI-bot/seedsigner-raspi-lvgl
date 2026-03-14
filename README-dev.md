@@ -1,12 +1,17 @@
-# README-dev
+# Developer Guide
 
 ## Local setup
 
 ```bash
+git submodule update --init --recursive   # pulls seedsigner-c-modules + LVGL
 python -m venv .venv
 source .venv/bin/activate
 pip install -U pip pytest
 ```
+
+> The repo includes `seedsigner-c-modules` as a git submodule under
+> `sources/seedsigner-c-modules`, which itself contains LVGL as a nested
+> submodule (`third_party/lvgl`). The `--recursive` flag is required.
 
 ## Run tests
 
@@ -14,171 +19,85 @@ pip install -U pip pytest
 python -m pytest
 ```
 
-## Stage B Docker build skeleton
+## Build paths
 
-Build the portable screen-core sanity target through Docker (same entrypoint local + CI):
-
-```bash
-./scripts/build_in_docker.sh
-```
-
-Build logs are written to a consistent directory:
-- `logs/stageb/`
-- filename format starts with UTC timestamp and includes target:
-  - `<YYYYmmdd-HHMMSS>_stageb_docker_driver_<target>.log`
-  - `<YYYYmmdd-HHMMSS>_stageb_docker_<target>.log`
-  - `<YYYYmmdd-HHMMSS>_stageb_host_<target>.log`
-
-Notes:
-- Expects sibling repo at `../seedsigner-micropython-builder` by default.
-- Override paths via env vars if needed:
-  - `WS_ROOT`
-  - `SEEDSIGNER_C_MODULES_DIR`
-  - `LVGL_ROOT`
-  - `RUN_TS` (optional fixed run timestamp for grouped logs)
-  - `TARGET_ARCH` (`host` default, `armv6` for Pi Zero cross build)
-
-Examples:
-```bash
-# host build in docker
-TARGET_ARCH=host ./scripts/build_in_docker.sh
-
-# Pi Zero architecture cross-build in docker
-TARGET_ARCH=armv6 ./scripts/build_in_docker.sh
-```
-
-## Stage C/E native binding path
-
-Host build + native extension smoke test:
+### Host build (native extension for local arch)
 
 ```bash
 ./scripts/stagec_build.sh
 ```
 
-Docker entrypoint:
-
+Docker variant:
 ```bash
 TARGET_ARCH=host ./scripts/build_stagec_in_docker.sh
-TARGET_ARCH=armv6 ./scripts/build_stagec_in_docker.sh
 ```
 
-Stage C/E logs:
-- `logs/staged/`
-- `<YYYYmmdd-HHMMSS>_staged_<mode>_<target>.log`
-- `<YYYYmmdd-HHMMSS>_staged_docker_driver_<target>.log`
+### ARMv6 build (Pi Zero target)
 
-## ARMv6 Python base image (versioned)
+Using GHCR base image (preferred — produces ARMv6-compatible artifacts):
+```bash
+./scripts/build_stagef_with_local_base.sh
+```
 
-Initial priority is Python 3.10 for dev hardware.
+Override image source:
+```bash
+IMAGE_TAG=seedsigner-raspi-lvgl/python-armv6:py310-dev-local ./scripts/build_stagef_with_local_base.sh
+```
 
-Build local ARMv6 Python base image (source-built Python):
+> **ARMv6 requirement**: use `build_stagef_with_local_base.sh` for Pi Zero
+> artifacts. The `build_stagef_emu_in_docker.sh` path runs `linux/arm/v7`
+> emulation and can produce artifacts that fail ARMv6 compatibility.
+
+Alternative (emulated ARM container, slower):
+```bash
+./scripts/build_stagef_emu_in_docker.sh
+```
+
+### Build ARMv6 Python base image
 
 ```bash
 PYTHON_VERSION=3.10.10 PY_SERIES=py310 ./scripts/build_python_armv6_base_in_docker.sh
 ```
 
-Logs:
-- `logs/base-image/`
-- `<YYYYmmdd-HHMMSS>_python-armv6-base_<pyseries>.log`
+## Build logs
 
-This path is parameterized for future versions (e.g., py311/py312).
+All builds write timestamped logs under `logs/`:
+- `logs/stageb/` — Docker build skeleton
+- `logs/staged/` — native binding builds
+- `logs/stagef/` — ARMv6 CPython extension builds
+- `logs/base-image/` — Python base image builds
 
-## Stage F armv6-cpython wiring
+## Environment variables
 
-Run Stage F host path:
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `SEEDSIGNER_C_MODULES_DIR` | Path to c-modules source | `sources/seedsigner-c-modules` |
+| `LVGL_ROOT` | Path to LVGL source | `sources/seedsigner-c-modules/third_party/lvgl` |
+| `WS_ROOT` | Workspace root for Docker mounts | auto-detected |
+| `IMAGE_TAG` | GHCR base image for ARMv6 builds | `py310-dev` tag |
+| `TARGET_ARCH` | Build target (`host`, `armv6`) | varies by script |
+| `LOCK_FILE` | Version lock file | `versions.lock.toml` |
+| `ABI_JSON` | ABI reference file | `docs/abi/dev-pi-abi.json` |
 
-```bash
-TARGET_ARCH=host ./scripts/stagef_build.sh
-```
+## Pi hardware smoke tests
 
-Run Stage F Docker armv6-cpython wiring:
-
-```bash
-TARGET_ARCH=armv6-cpython ./scripts/build_stagef_in_docker.sh
-```
-
-Run Stage F using base image (defaults to GHCR `py310-dev` tag):
-
-```bash
-./scripts/build_stagef_with_local_base.sh
-```
-
-> **Pi Zero target requirement:** when targeting Pi Zero hardware artifacts, use
-> `./scripts/build_stagef_with_local_base.sh` (GHCR ARMv6 base) as the required
-> Stage F build entrypoint. Do **not** use `build_stagef_emu_in_docker.sh` for
-> Pi Zero release-target builds, since that path runs `linux/arm/v7` emulation
-> and can produce artifacts that fail ARMv6 compatibility gating.
-
-Override image source when needed (e.g., local image):
-
-```bash
-IMAGE_TAG=seedsigner-raspi-lvgl/python-armv6:py310-dev-local ./scripts/build_stagef_with_local_base.sh
-```
-
-Stage F logs:
-- `logs/stagef/`
-- `<YYYYmmdd-HHMMSS>_stagef_<mode>_<target>.log`
-- `<YYYYmmdd-HHMMSS>_stagef_docker_driver_<target>.log`
-
-Stage F environment knobs:
-- `LOCK_FILE` (default `versions.lock.toml`, consumed by scripts)
-- `ABI_JSON` (default `docs/abi/dev-pi-abi.json`)
-- `PYTHON_TARGET_INCLUDE` (required if target Python headers are not present in container)
-- `PYTHON_TARGET_LIBDIR` (optional)
-- `PYTHON_TARGET_LDLIBRARY` (optional)
-
-Alternative (emulated ARM container) when cross headers/sysroot are unavailable:
-
-```bash
-./scripts/build_stagef_emu_in_docker.sh
-```
-
-Notes:
-- Uses QEMU/binfmt + `--platform linux/arm/v7` with the locked `py310-dev` base image/toolchain.
-- Build step forces ARMv6 codegen flags (`-march=armv6zk -mtune=arm1176jzf-s -marm -mfpu=vfp -mfloat-abi=hard`).
-- Script verifies `readelf -A` includes ARMv6 CPU arch attribute and fails otherwise.
-- No ad-hoc runtime compiler install/workaround in Stage F emu path.
-- Slower than native/cross builds; still validate final artifacts on real Pi.
-
-Current limitations:
-- armv6-cpython build wiring is in place, but successful cross-build still depends on providing target Python headers/sysroot paths.
-- Stage E runtime loop is minimal; full joystick->LVGL indev parity wiring is still pending.
-- If no callback event is emitted before timeout, deterministic fallback queue event is used.
-- Compiled `button_list_screen` currently expects `button_list` entries as strings or arrays/tuples with string at index 0.
-
-## Pi hardware smoke test (display)
-
-Run this on Pi target hardware (with `RPi.GPIO` and `spidev` installed):
+### Display
 
 ```bash
 python scripts/pi_display_smoke.py --hold-seconds 1.5
 ```
 
-(If you prefer explicit pathing: `PYTHONPATH=src python scripts/pi_display_smoke.py`)
+Expected: white frame, black frame, checkerboard frame.
 
-Expected visual sequence:
-1. White frame
-2. Black frame
-3. Checkerboard frame
-
-## Input behavior spec
-
-For the canonical Pi hardware button/joystick behavior contract, see:
-- `docs/input-button-behavior.md`
-
-Use this spec as source-of-truth for navigation semantics (top-nav/body zones, directional rules, and KEY1/2/3 policy), even when implementation work spans into C modules.
-
-## Pi hardware smoke test (input)
-
-Run this on Pi target hardware (with `RPi.GPIO` installed):
+### Input
 
 ```bash
 python scripts/pi_input_smoke.py
 ```
 
-(If you prefer explicit pathing: `PYTHONPATH=src python scripts/pi_input_smoke.py`)
+Expected: prints timestamped press/repeat events. Exit with Ctrl+C.
 
-Expected behavior:
-- Prints timestamped `press` and `repeat` events for UP/DOWN/LEFT/RIGHT/PRESS/KEY1/KEY2/KEY3
-- Repeat cadence scaffold: first repeat ~225ms, then every ~250ms while held
-- Exit with `Ctrl+C`
+## Input behavior spec
+
+See `docs/input-button-behavior.md` for the canonical navigation and input
+contract (focus zones, directional rules, KEY1/2/3 policy).

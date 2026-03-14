@@ -82,9 +82,3 @@ ldd seedsigner_lvgl_native.cpython-310-arm-linux-gnueabihf.so || true
 ```
 
 Share outputs for triage.
-
-## Current expected limitations
-
-- Runtime loop/input parity is still incremental.
-- Fallback event path may still appear in some flows.
-- This is a runtime viability test, not full UI parity certification.

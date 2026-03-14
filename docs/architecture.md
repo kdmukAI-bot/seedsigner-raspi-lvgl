@@ -1,89 +1,75 @@
-# Architecture (Reworked): Compiled SeedSigner LVGL Screens on Pi Zero
+# Architecture
 
 ## Objective
-Run the **existing SeedSigner C/C++ LVGL screen implementation** on Pi Zero (armv6l), exposed to Python through bindings that match MicroPython usage.
+
+Run the existing SeedSigner C/C++ LVGL screen implementation on Pi Zero
+(ARMv6), exposed to Python through bindings that match MicroPython usage.
 
 ## Non-goal
-Rewriting screen logic in Python. Python should orchestrate Views/business flow; compiled C/C++ should own screen behavior/rendering.
+
+Rewriting screen logic in Python. Python orchestrates Views/business flow;
+compiled C/C++ owns screen behavior and rendering.
 
 ## Core constraints
+
 1. Reuse `seedsigner-c-modules` screen code as source of truth.
 2. CPython binding signatures must match MicroPython equivalents.
-3. Keep direct function-call model (`button_list_screen(cfg_dict)` etc.).
-4. Build flow must be Docker-first and identical in local + GitHub Actions.
-5. Pi target profile: 240x240 ST7789, joystick+KEY1/2/3, `PX_MULTIPLIER=100`.
+3. Direct function-call model (`button_list_screen(cfg_dict)`, not RPC).
+4. Build flow is Docker-first, identical in local and GitHub Actions.
+5. Single hardware target: 240x240 ST7789, joystick + KEY1/2/3, PX_MULTIPLIER=100.
 
-## High-level architecture
+## Layer breakdown
 
-### 1) Portable screen core (C/C++)
-- Derived from `components/seedsigner/*` + required helpers.
-- Contains screen logic, LVGL object/state handling, result emission hooks.
-- Must be isolated from ESP-IDF/FreeRTOS specifics.
+### 1) Portable screen core (C/C++ — from seedsigner-c-modules)
 
-### 2) Platform shims
-- **ESP32 shim** (existing path)
-- **Pi shim** (new path)
+Reused directly:
+- `seedsigner.cpp` — screen construction, JSON config parsing
+- `components.cpp` — LVGL widgets, button callbacks, result emission
+- `navigation.cpp` — keypad sink, focus management, zone transitions, aux keys
+- `input_profile.cpp` — runtime input mode (touch vs hardware)
+- `fonts/*.c` — pre-rendered font bitmaps
 
-Pi shim responsibilities:
-- ST7789 flush and framebuffer transport over SPI
-- input polling (GPIO active-low, repeat timing parity)
-- time/tick integration for LVGL
-- queue handoff to Python binding layer
+These files are platform-agnostic. ESP32 coupling lives in separate components
+(`display_manager`, `esp_bsp`, `esp_lv_port`) that are not used here.
 
-### 3) CPython binding layer
-- Native extension module (or equivalent compiled binding) named `seedsigner_lvgl`.
-- Exposes MicroPython-parity call surface:
-  - `button_list_screen(cfg_dict)`
-  - `clear_result_queue()`
-  - `poll_for_result()`
-- Marshals Python dicts/tuples/lists into screen-core context.
-- Returns queue tuples with stable parity semantics.
+### 2) Pi platform backend (module.cpp)
+
+`native/python_bindings/module.cpp` is both the platform backend and the
+Python binding layer:
+- ST7789 SPI display flush (direct `/dev/spidev0.0` writes)
+- GPIO input polling via `/dev/gpiochip0` (active-low, joystick + 3 buttons)
+- LVGL runtime management (init, tick, timer handler)
+- `input_profile_set_mode(INPUT_MODE_HARDWARE)` — activates the c-modules
+  navigation system (keypad sink, per-screen focus groups, aux key handling)
+- Result queue bridging `seedsigner_lvgl_on_button_selected()` → Python tuples
+
+### 3) CPython binding surface
+
+Native extension module `seedsigner_lvgl_native` exposes:
+- `lvgl_init(hor_res, ver_res)` / `lvgl_shutdown()`
+- `native_display_init(...)` / `native_display_shutdown()`
+- `button_list_screen(cfg_dict)` — renders screen, runs LVGL loop until result
+- `clear_result_queue()` / `poll_for_result()` — result tuple access
+- `set_flush_callback(cb)` / `set_flush_mode("native"|"python")`
 
 ### 4) Python View layer
-- Existing business logic calls bound screen functions directly.
-- Polls for results exactly as current flow expects.
 
-## Build/release model
-- Canonical Docker build environment for Pi artifacts.
-- Same entrypoint used by local dev and GitHub Actions.
-- Produce deterministic outputs (pinned toolchain/deps).
+Existing business logic calls screen functions and polls for results, unchanged
+from MicroPython usage.
 
-## Proof-of-concept target (must-hit)
-Compiled `button_list_screen` running on real Pi Zero, invoked from Python bindings, with interactive input and poll-for-result tuple return parity.
+## Build model
 
-## Implementation sequence
+- Canonical build: Docker + QEMU ARMv6 emulation using GHCR base image
+- Same `build_stagef_with_local_base.sh` script for local and CI
+- Pinned dependencies in `versions.lock.toml`
+- ARMv6 codegen enforced and verified via `readelf -A`
 
-### S1 — Porting boundary map
-- Enumerate C/C++ units to keep vs shim/replace.
-- Document external deps needing Pi alternatives.
+## Key boundary: navigation ownership
 
-### S2 — Docker Pi build skeleton
-- Add Dockerfile + build script for armv6l target artifacts.
-- Add CI stub calling same script.
+The c-modules navigation system (`nav_bind()`) owns all focus management:
+- Creates per-screen LVGL groups
+- Assigns keypad indevs to groups
+- Handles directional movement, zone transitions, aux key dispatch
 
-### S3 — Minimal native binding
-- Compile portable core + Pi shim into Python-loadable module.
-- Expose one screen binding (`button_list_screen`) + result queue API.
-
-### S4 — Pi hardware PoC
-- Launch from Python on Pi Zero.
-- Verify navigation + selection + queue return semantics.
-
-### S5 — Parity expansion
-- Add additional screens and top-nav focus-region parity.
-- Harden input filtering/debounce as needed.
-
-## Current status note
-Existing Python-side scaffolding in this repo is considered temporary support code unless backed by compiled screen-core integration.
-
-## Durable references
-- C modules root:
-  `/home/keith/.openclaw/workspace-mp-project-lead/dev/seedsigner-micropython-builder/sources/seedsigner-c-modules`
-- MicroPython binding entrypoint:
-  `/home/keith/.openclaw/workspace-mp-project-lead/dev/seedsigner-micropython-builder/sources/seedsigner-c-modules/bindings/modseedsigner_bindings.c`
-- C screen implementation entrypoint:
-  `/home/keith/.openclaw/workspace-mp-project-lead/dev/seedsigner-micropython-builder/sources/seedsigner-c-modules/components/seedsigner/seedsigner.cpp`
-- Parity reference flow:
-  `/home/keith/.openclaw/workspace-mp-project-lead/dev/seedsigner-micropython-builder/sources/seedsigner-c-modules/tests/repl_test_button_list_flow.py`
-- Pi hardware reference:
-  `docs/hardware-profile.md`
+`module.cpp` registers the keypad indev and sets hardware input mode.
+It does **not** create groups or manage focus — that's the c-modules' job.
