@@ -249,11 +249,16 @@ static int gpiochip_request_input_line(int chip_fd, int pin, const char *consume
     struct gpiohandle_request req;
     memset(&req, 0, sizeof(req));
     req.lineoffsets[0] = static_cast<unsigned int>(pin);
-    req.flags = GPIOHANDLE_REQUEST_INPUT;
+    req.flags = GPIOHANDLE_REQUEST_INPUT | GPIOHANDLE_REQUEST_BIAS_PULL_UP;
     req.lines = 1;
     strncpy(req.consumer_label, consumer, sizeof(req.consumer_label) - 1);
     if (ioctl(chip_fd, GPIO_GET_LINEHANDLE_IOCTL, &req) < 0) {
-        throw std::runtime_error("GPIO_GET_LINEHANDLE_IOCTL(input) failed pin=" + std::to_string(pin) + " errno=" + std::to_string(errno));
+        // Kernel < 5.5 may not support bias flags; retry without.
+        req.flags = GPIOHANDLE_REQUEST_INPUT;
+        if (ioctl(chip_fd, GPIO_GET_LINEHANDLE_IOCTL, &req) < 0) {
+            throw std::runtime_error("GPIO_GET_LINEHANDLE_IOCTL(input) failed pin=" + std::to_string(pin) + " errno=" + std::to_string(errno));
+        }
+        fprintf(stderr, "[seedsigner_lvgl_native] WARN: pull-up not supported for pin %d, using default bias\n", pin);
     }
     return req.fd;
 }
@@ -326,6 +331,7 @@ static void native_input_shutdown() {
 
 static void native_input_init() {
     if (!s_native.gpiochip_ready) {
+        fprintf(stderr, "[seedsigner_lvgl_native] input init skipped: gpiochip not ready\n");
         return;
     }
     native_input_shutdown();
@@ -338,6 +344,7 @@ static void native_input_init() {
     s_input.key2_fd = gpiochip_request_input_line(s_native.gpio_chip_fd, s_input.key2_pin, "sslvgl-in-key2");
     s_input.key3_fd = gpiochip_request_input_line(s_native.gpio_chip_fd, s_input.key3_pin, "sslvgl-in-key3");
     s_input.ready = true;
+    fprintf(stderr, "[seedsigner_lvgl_native] input init OK: 8 lines open (pull-up requested)\n");
 }
 
 static void native_input_read_cb(lv_indev_drv_t *drv, lv_indev_data_t *data) {
