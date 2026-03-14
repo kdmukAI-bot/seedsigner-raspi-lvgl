@@ -17,7 +17,6 @@ Ctrl+C to exit.
 from __future__ import annotations
 
 import sys
-import time
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -25,24 +24,30 @@ SRC_DIR = REPO_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-# Short timeout so the C extension periodically returns control to Python,
-# allowing Ctrl+C (SIGINT) to be processed.  The screen is re-rendered
-# each iteration but content is identical so there is no visible flicker.
-POLL_TIMEOUT_MS = 1000
+# How long each lvgl_pump cycle runs (ms) before returning to Python.
+# Shorter = more responsive to Ctrl+C, but slightly more Python overhead.
+PUMP_MS = 500
 
 
-def wait_for_menu_input(mod):
-    """Render the main menu (2x2 grid) and wait for input."""
+def pump_until_result(mod):
+    """Pump LVGL in a loop until a result event arrives. Returns the event tuple."""
     while True:
-        mod.clear_result_queue()
-        mod.main_menu_screen(wait_timeout_ms=POLL_TIMEOUT_MS, allow_timeout_fallback=False)
+        mod.lvgl_pump(duration_ms=PUMP_MS)
         event = mod.poll_for_result()
         if event is not None:
             return event
 
 
-def wait_for_list_input(mod, title, buttons, *, show_back=True):
+def show_main_menu(mod):
+    """Render main menu and wait for input."""
+    mod.clear_result_queue()
+    mod.main_menu_screen(wait_timeout_ms=1)
+    return pump_until_result(mod)
+
+
+def show_button_list(mod, title, buttons, *, show_back=True):
     """Render a button list screen and wait for input."""
+    mod.clear_result_queue()
     cfg = {
         "top_nav": {
             "title": title,
@@ -50,16 +55,11 @@ def wait_for_list_input(mod, title, buttons, *, show_back=True):
             "show_power_button": False,
         },
         "button_list": buttons,
-        "wait_timeout_ms": POLL_TIMEOUT_MS,
+        "wait_timeout_ms": 1,
         "allow_timeout_fallback": False,
     }
-
-    while True:
-        mod.clear_result_queue()
-        mod.button_list_screen(cfg)
-        event = mod.poll_for_result()
-        if event is not None:
-            return event
+    mod.button_list_screen(cfg)
+    return pump_until_result(mod)
 
 
 def format_event(event):
@@ -98,11 +98,11 @@ def main() -> int:
             if kind == "main_menu":
                 print(f"[{i}/{len(screens)}] Screen: Main Menu (2x2 grid)")
                 print("    Use joystick in all 4 directions, center click to select.")
-                event = wait_for_menu_input(mod)
+                event = show_main_menu(mod)
             else:
                 print(f"[{i}/{len(screens)}] Screen: {title}  |  Buttons: {buttons}")
                 print("    Use joystick to navigate, center click to select.")
-                event = wait_for_list_input(mod, title, buttons)
+                event = show_button_list(mod, title, buttons)
 
             print(f"    => {format_event(event)}\n")
 
@@ -112,7 +112,7 @@ def main() -> int:
         while True:
             round_num += 1
             print(f"[loop #{round_num}] Main Menu")
-            event = wait_for_menu_input(mod)
+            event = show_main_menu(mod)
             print(f"    => {format_event(event)}\n")
 
     except KeyboardInterrupt:
