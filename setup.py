@@ -109,6 +109,7 @@ ext_modules = [
             str(SEEDSIGNER_DIR / "input_profile.cpp"),
             str(SEEDSIGNER_DIR / "navigation.cpp"),
             str(SEEDSIGNER_DIR / "seedsigner.cpp"),
+            str(SEEDSIGNER_DIR / "images" / "seedsigner_logo_img.c"),
             *font_paths,
             *lvgl_sources,
         ],
