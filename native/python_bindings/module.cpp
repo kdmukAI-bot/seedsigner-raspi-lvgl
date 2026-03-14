@@ -1134,6 +1134,35 @@ static PyObject *py_button_list_screen(PyObject *self, PyObject *args) {
     Py_RETURN_NONE;
 }
 
+static PyObject *py_main_menu_screen(PyObject *self, PyObject *args, PyObject *kwargs) {
+    (void)self;
+    static const char *kwlist[] = {"wait_timeout_ms", "allow_timeout_fallback", NULL};
+    unsigned int wait_timeout_ms = 0;
+    int allow_timeout_fallback = 0;
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|Ip", const_cast<char **>(kwlist),
+                                     &wait_timeout_ms, &allow_timeout_fallback)) {
+        return NULL;
+    }
+
+    try {
+        require_lvgl_runtime();
+        main_menu_screen(NULL);
+        s_last_path = "compiled";
+
+        run_lvgl_until_result_or_timeout(wait_timeout_ms);
+
+        if (s_count == 0 && allow_timeout_fallback) {
+            queue_push(RESULT_BUTTON_SELECTED, 0, "Scan");
+            s_last_path = "fallback_timeout";
+        }
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+
+    Py_RETURN_NONE;
+}
+
 static PyMethodDef methods[] = {
     {"lvgl_init", (PyCFunction)py_lvgl_init, METH_VARARGS | METH_KEYWORDS, "Initialize LVGL runtime."},
     {"lvgl_shutdown", py_lvgl_shutdown, METH_NOARGS, "Shutdown LVGL runtime."},
@@ -1143,7 +1172,8 @@ static PyMethodDef methods[] = {
     {"native_debug_config", (PyCFunction)py_native_debug_config, METH_VARARGS | METH_KEYWORDS, "Configure native flush debug logging."},
     {"set_flush_mode", py_set_flush_mode, METH_VARARGS, "Set flush mode: native|python."},
     {"set_flush_callback", py_set_flush_callback, METH_VARARGS, "Set display flush callback(area, bytes)."},
-    {"button_list_screen", py_button_list_screen, METH_VARARGS, "Stage E compiled-path bridge with runtime loop."},
+    {"button_list_screen", py_button_list_screen, METH_VARARGS, "Render button list screen with runtime loop."},
+    {"main_menu_screen", (PyCFunction)py_main_menu_screen, METH_VARARGS | METH_KEYWORDS, "Render main menu screen (2x2 grid)."},
     {"clear_result_queue", py_clear_result_queue, METH_NOARGS, "Clear result queue."},
     {"poll_for_result", py_poll_for_result, METH_NOARGS, "Poll next result tuple or None."},
     {"_debug_last_path", py_debug_last_path, METH_NOARGS, "Debug helper for bridge path."},

@@ -6,12 +6,12 @@ Run on Pi Zero with the built .so in src/:
 
 Expected:
   - Screen renders on ST7789 display
-  - Joystick UP/DOWN moves focus between buttons and top-nav
+  - Joystick navigates focus between controls
   - PRESS (center click) selects the focused item
   - KEY1/KEY2/KEY3 trigger aux key behavior
   - Selected item prints as an event tuple, then the next screen loads
 
-Ctrl+C to exit at any time.
+Ctrl+C to exit.
 """
 
 from __future__ import annotations
@@ -25,10 +25,24 @@ SRC_DIR = REPO_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
+# Short timeout so the C extension periodically returns control to Python,
+# allowing Ctrl+C (SIGINT) to be processed.  The screen is re-rendered
+# each iteration but content is identical so there is no visible flicker.
+POLL_TIMEOUT_MS = 1000
 
-def run_screen(mod, title, buttons, *, show_back=True):
-    """Render a screen and wait for real hardware input. Returns the event tuple."""
-    mod.clear_result_queue()
+
+def wait_for_menu_input(mod):
+    """Render the main menu (2x2 grid) and wait for input."""
+    while True:
+        mod.clear_result_queue()
+        mod.main_menu_screen(wait_timeout_ms=POLL_TIMEOUT_MS, allow_timeout_fallback=False)
+        event = mod.poll_for_result()
+        if event is not None:
+            return event
+
+
+def wait_for_list_input(mod, title, buttons, *, show_back=True):
+    """Render a button list screen and wait for input."""
     cfg = {
         "top_nav": {
             "title": title,
@@ -36,19 +50,30 @@ def run_screen(mod, title, buttons, *, show_back=True):
             "show_power_button": False,
         },
         "button_list": buttons,
+        "wait_timeout_ms": POLL_TIMEOUT_MS,
+        "allow_timeout_fallback": False,
     }
 
-    print(f"\n--- Screen: {title} ---")
-    print(f"    Buttons: {buttons}")
-    print("    Navigate with joystick, press center to select.")
-    if show_back:
-        print("    UP past first item reaches Back in top nav.")
+    while True:
+        mod.clear_result_queue()
+        mod.button_list_screen(cfg)
+        event = mod.poll_for_result()
+        if event is not None:
+            return event
 
-    mod.button_list_screen(cfg)
 
-    # button_list_screen blocks until a nav event fires (timeout=0 default).
-    event = mod.poll_for_result()
-    return event
+def format_event(event):
+    """Format an event tuple for display."""
+    if event is None:
+        return "None (no event)"
+    kind, index, label = event
+    if kind == "topnav_back":
+        return "BACK (top nav)"
+    if kind == "topnav_power":
+        return "POWER (top nav)"
+    if kind == "button_selected":
+        return f"button #{index}: {label!r}"
+    return f"{kind} index={index} label={label!r}"
 
 
 def main() -> int:
@@ -58,43 +83,44 @@ def main() -> int:
     mod.lvgl_init(hor_res=240, ver_res=240)
     mod.native_display_init()
     mod.set_flush_mode("native")
-    print("[hw-input-test] Display + input ready.\n")
+    print("[hw-input-test] Display + input ready.")
+    print("[hw-input-test] Ctrl+C to exit.\n")
 
     screens = [
-        ("Navigation Test", ["Alpha", "Beta", "Gamma"]),
-        ("Two Items", ["First", "Second"]),
-        ("Single Item", ["Only Option"]),
+        ("main_menu", None, None),
+        ("list", "Vertical List", ["Alpha", "Beta", "Gamma"]),
+        ("list", "Two Items", ["First", "Second"]),
+        ("list", "Single Item", ["Only Option"]),
     ]
 
     try:
-        for title, buttons in screens:
-            event = run_screen(mod, title, buttons)
-            print(f"  => Event: {event}")
-
-            if event is None:
-                print("  => ERROR: no event received")
-                continue
-
-            kind, index, label = event
-            if kind == "topnav_back":
-                print("  => Back pressed (top nav)")
-            elif kind == "button_selected":
-                print(f"  => Selected button #{index}: {label!r}")
+        for i, (kind, title, buttons) in enumerate(screens, 1):
+            if kind == "main_menu":
+                print(f"[{i}/{len(screens)}] Screen: Main Menu (2x2 grid)")
+                print("    Use joystick in all 4 directions, center click to select.")
+                event = wait_for_menu_input(mod)
             else:
-                print(f"  => Other event: {kind}")
+                print(f"[{i}/{len(screens)}] Screen: {title}  |  Buttons: {buttons}")
+                print("    Use joystick to navigate, center click to select.")
+                event = wait_for_list_input(mod, title, buttons)
 
-        print("\n[hw-input-test] All screens complete. Running one more (press Ctrl+C to exit)...")
+            print(f"    => {format_event(event)}\n")
 
+        print("All test screens complete. Looping main menu — Ctrl+C to exit.\n")
+
+        round_num = 0
         while True:
-            event = run_screen(mod, "Repeat Test", ["Keep Going", "Still Here"])
-            print(f"  => Event: {event}")
+            round_num += 1
+            print(f"[loop #{round_num}] Main Menu")
+            event = wait_for_menu_input(mod)
+            print(f"    => {format_event(event)}\n")
 
     except KeyboardInterrupt:
         print("\n[hw-input-test] Interrupted.")
 
     mod.lvgl_shutdown()
     mod.native_display_shutdown()
-    print("[hw-input-test] Shutdown complete.")
+    print("[hw-input-test] Done.")
     return 0
 
 
