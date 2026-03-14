@@ -19,6 +19,8 @@ def test_native_module_import_and_queue_shape():
     cfg = {
         "top_nav": {"title": "Menu"},
         "button_list": ["Compiled Path"],
+        "wait_timeout_ms": 250,
+        "allow_timeout_fallback": True,
     }
     mod.button_list_screen(cfg)
 

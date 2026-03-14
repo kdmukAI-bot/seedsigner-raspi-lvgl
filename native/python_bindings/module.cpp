@@ -3,6 +3,7 @@
 
 #include "lvgl.h"
 #include "seedsigner.h"
+#include "input_profile.h"
 
 #include <chrono>
 #include <cstdio>
@@ -43,7 +44,6 @@ static unsigned int s_count = 0;
 static bool s_lvgl_inited = false;
 static lv_disp_draw_buf_t s_draw_buf;
 static lv_color_t s_buf1[240 * 10];
-static lv_group_t *s_input_group = NULL;
 static lv_indev_t *s_input_indev = NULL;
 static uint64_t s_last_tick_ms = 0;
 static uint32_t s_hor_res = 240;
@@ -355,9 +355,9 @@ static void native_input_read_cb(lv_indev_drv_t *drv, lv_indev_data_t *data) {
         {s_input.left_fd, LV_KEY_LEFT},
         {s_input.right_fd, LV_KEY_RIGHT},
         {s_input.press_fd, LV_KEY_ENTER},
-        {s_input.key1_fd, LV_KEY_ESC},
-        {s_input.key2_fd, LV_KEY_ENTER},
-        {s_input.key3_fd, LV_KEY_HOME},
+        {s_input.key1_fd, (uint32_t)'1'},
+        {s_input.key2_fd, (uint32_t)'2'},
+        {s_input.key3_fd, (uint32_t)'3'},
     };
 
     for (const auto &km : keys) {
@@ -604,19 +604,13 @@ static void ensure_lvgl_runtime() {
     disp_drv.draw_buf = &s_draw_buf;
     lv_disp_drv_register(&disp_drv);
 
-    if (s_input_group == NULL) {
-        s_input_group = lv_group_create();
-        lv_group_set_default(s_input_group);
-    }
-
     static lv_indev_drv_t indev_drv;
     lv_indev_drv_init(&indev_drv);
     indev_drv.type = LV_INDEV_TYPE_KEYPAD;
     indev_drv.read_cb = native_input_read_cb;
     s_input_indev = lv_indev_drv_register(&indev_drv);
-    if (s_input_indev && s_input_group) {
-        lv_indev_set_group(s_input_indev, s_input_group);
-    }
+
+    input_profile_set_mode(INPUT_MODE_HARDWARE);
 
     s_last_tick_ms = now_ms();
     s_lvgl_inited = true;
@@ -788,37 +782,14 @@ static void lvgl_runtime_pump(unsigned int duration_ms, unsigned int sleep_ms) {
     }
 }
 
-static void group_add_buttons_recursive(lv_obj_t *obj) {
-    if (!obj || !s_input_group) {
-        return;
-    }
-    if (lv_obj_check_type(obj, &lv_btn_class)) {
-        lv_group_add_obj(s_input_group, obj);
-    }
-    uint32_t cnt = lv_obj_get_child_cnt(obj);
-    for (uint32_t i = 0; i < cnt; ++i) {
-        lv_obj_t *child = lv_obj_get_child(obj, i);
-        group_add_buttons_recursive(child);
-    }
-}
-
-static void attach_active_screen_to_input_group() {
-    if (!s_input_group) {
-        return;
-    }
-    lv_obj_t *scr = lv_scr_act();
-    if (!scr) {
-        return;
-    }
-    group_add_buttons_recursive(scr);
-    lv_group_focus_next(s_input_group);
-}
-
 static void run_lvgl_until_result_or_timeout(unsigned int timeout_ms) {
     auto start = std::chrono::steady_clock::now();
     while (s_count == 0) {
         lvgl_runtime_pump(5, 1);
 
+        if (timeout_ms == 0) {
+            continue;  // no timeout — run until a result arrives
+        }
         auto now = std::chrono::steady_clock::now();
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - start).count();
         if (elapsed >= static_cast<long long>(timeout_ms)) {
@@ -1130,8 +1101,8 @@ static PyObject *py_button_list_screen(PyObject *self, PyObject *args) {
         validate_cfg(cfg);
         require_lvgl_runtime();
 
-        const unsigned int wait_timeout_ms = cfg_wait_timeout_ms(cfg, 250);
-        const bool allow_timeout_fallback = cfg_allow_timeout_fallback(cfg, true);
+        const unsigned int wait_timeout_ms = cfg_wait_timeout_ms(cfg, 0);
+        const bool allow_timeout_fallback = cfg_allow_timeout_fallback(cfg, false);
 
         std::string cfg_json = py_cfg_to_json(cfg);
         button_list_screen((void *)cfg_json.c_str());
