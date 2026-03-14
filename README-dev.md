@@ -79,9 +79,11 @@ All builds write timestamped logs under `logs/`:
 | `LOCK_FILE` | Version lock file | `versions.lock.toml` |
 | `ABI_JSON` | ABI reference file | `docs/abi/dev-pi-abi.json` |
 
-## Pi hardware smoke tests
+## Pi hardware testing
 
-### Display
+Full guide: `docs/pi-hardware-test.md`
+
+### Display smoke test
 
 ```bash
 python scripts/pi_display_smoke.py --hold-seconds 1.5
@@ -89,13 +91,23 @@ python scripts/pi_display_smoke.py --hold-seconds 1.5
 
 Expected: white frame, black frame, checkerboard frame.
 
-### Input
+### Input smoke test (GPIO polling only)
 
 ```bash
 python scripts/pi_input_smoke.py
 ```
 
 Expected: prints timestamped press/repeat events. Exit with Ctrl+C.
+
+### Hardware input test (display + navigation, end-to-end)
+
+```bash
+PYTHONPATH=src python scripts/pi_input_hardware_test.py
+```
+
+Renders screens on the display, waits for joystick/button input, prints
+the resulting event. Verifies the full path: GPIO polling → LVGL indev →
+c-modules navigation → screen result → Python event tuple.
 
 ## Input behavior spec
 
