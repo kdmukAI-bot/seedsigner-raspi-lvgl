@@ -42,19 +42,8 @@ jobs:
     steps:
       - name: Checkout seedsigner-raspi-lvgl
         uses: actions/checkout@v4
-
-      - name: Checkout seedsigner-c-modules (source dependency)
-        uses: actions/checkout@v4
         with:
-          repository: kdmukAI-bot/seedsigner-c-modules
-          path: seedsigner-c-modules
-
-      - name: Checkout lvgl (pinned dependency)
-        uses: actions/checkout@v4
-        with:
-          repository: lvgl/lvgl
-          ref: v8.4.0
-          path: lvgl
+          submodules: recursive
 
       - name: Resolve image tag
         id: cfg
@@ -120,16 +109,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -f "${GITHUB_WORKSPACE}/seedsigner-c-modules/components/seedsigner/seedsigner.cpp"
-          test -f "${GITHUB_WORKSPACE}/lvgl/lvgl.h"
+          test -f "${GITHUB_WORKSPACE}/sources/seedsigner-c-modules/components/seedsigner/seedsigner.cpp"
+          test -f "${GITHUB_WORKSPACE}/sources/seedsigner-c-modules/third_party/lvgl/lvgl.h"
 
       - name: Build Stage F using base image
         env:
           WS_ROOT: ${{ github.workspace }}
           IMAGE_TAG: ${{ steps.cfg.outputs.image_tag }}
           PLATFORM: linux/arm/v6
-          SEEDSIGNER_C_MODULES_DIR: /workspace/seedsigner-c-modules
-          LVGL_ROOT: /workspace/lvgl
+          SEEDSIGNER_C_MODULES_DIR: /workspace/sources/seedsigner-c-modules
+          LVGL_ROOT: /workspace/sources/seedsigner-c-modules/third_party/lvgl
         run: |
           ./scripts/build_stagef_with_local_base.sh
 
