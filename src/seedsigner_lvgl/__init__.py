@@ -91,12 +91,25 @@ def bind_display(display):
     return set_flush_callback(_flush)
 
 
+def lvgl_pump(duration_ms=10, sleep_ms=1):
+    if _native is None:
+        raise NotImplementedError("Native binding not available.")
+    return _native.lvgl_pump(duration_ms=duration_ms, sleep_ms=sleep_ms)
+
+
 def button_list_screen(cfg_dict):
     if _native is None:
-        raise NotImplementedError(
-            "Native binding not available yet. Build/install Stage C extension first."
-        )
+        raise NotImplementedError("Native binding not available.")
     return _native.button_list_screen(cfg_dict)
+
+
+def main_menu_screen(wait_timeout_ms=0, allow_timeout_fallback=False):
+    if _native is None:
+        raise NotImplementedError("Native binding not available.")
+    return _native.main_menu_screen(
+        wait_timeout_ms=wait_timeout_ms,
+        allow_timeout_fallback=allow_timeout_fallback,
+    )
 
 
 def clear_result_queue():
@@ -121,7 +134,9 @@ __all__ = [
     "native_debug_config",
     "set_flush_mode",
     "bind_display",
+    "lvgl_pump",
     "button_list_screen",
+    "main_menu_screen",
     "clear_result_queue",
     "poll_for_result",
 ]
