@@ -2,7 +2,7 @@
 """Pi hardware test: verify joystick/button navigation through native LVGL screens.
 
 Run on Pi Zero with the built .so in src/:
-    PYTHONPATH=src python scripts/pi_input_hardware_test.py
+    PYTHONPATH=src python tests/pi_input_hardware_test.py
 
 Expected:
   - Screen renders on ST7789 display
