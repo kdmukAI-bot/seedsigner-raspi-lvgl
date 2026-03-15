@@ -81,6 +81,8 @@ def format_event(event):
     if kind == "topnav_power":
         return "POWER (top nav)"
     if kind == "button_selected":
+        if label == "screensaver_dismiss":
+            return "SCREENSAVER DISMISSED (any key)"
         return f"button #{index}: {label!r}"
     return f"{kind} index={index} label={label!r}"
 
