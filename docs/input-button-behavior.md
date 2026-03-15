@@ -130,9 +130,3 @@ Python View code receives:
 Directional navigation is internal to LVGL — not forwarded to Python unless
 a screen explicitly enables it.
 
----
-
-## Diagnostic tooling
-
-- `scripts/pi_gpio_mapping_diagnostic.py` — confirms hardware pin
-  interpretation before changing navigation behavior.

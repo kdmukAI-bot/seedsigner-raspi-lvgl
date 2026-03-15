@@ -32,8 +32,7 @@ Copy the minimum set of files to a directory on the Pi:
 ```bash
 rsync -avz \
   src/seedsigner_lvgl_native.cpython-310-arm-linux-gnueabihf.so \
-  scripts/pi_input_hardware_test.py \
-  tests/pi_runtime_smoke.py \
+  tests/pi_input_hardware_test.py \
   pi@<pi-host>:/home/pi/seedsigner-raspi-lvgl-test/
 ```
 
@@ -56,24 +55,12 @@ PYTHONPATH=src python3 -c "import seedsigner_lvgl_native; print('OK')"
 
 If this fails, see the diagnostics section below.
 
-## 3) Runtime smoke test (headless)
-
-```bash
-PYTHONPATH=src python3 tests/pi_runtime_smoke.py
-```
-
-This tests import, queue API, and `button_list_screen` with a 10-second
-timeout. It does not initialize the display — it validates the extension
-loads and the call/return path works.
-
-Expected output: `[pi-runtime-smoke] OK`
-
-## 4) Hardware input test (display + joystick)
+## 3) Hardware input test (display + joystick)
 
 This is the primary end-to-end validation for the hardware input wiring.
 
 ```bash
-PYTHONPATH=src python3 scripts/pi_input_hardware_test.py
+PYTHONPATH=src python3 tests/pi_input_hardware_test.py
 ```
 
 The test renders screens on the ST7789 display and waits for real input:
@@ -102,7 +89,7 @@ After each interaction, the script prints the event tuple:
 
 - Check SPI is enabled: `ls /dev/spidev0.0`
 - Check GPIO access: `ls /dev/gpiochip0`
-- Run as root if permission errors occur: `sudo PYTHONPATH=src python3 scripts/pi_input_hardware_test.py`
+- Run as root if permission errors occur: `sudo PYTHONPATH=src python3 tests/pi_input_hardware_test.py`
 
 ## 5) Import failure diagnostics
 

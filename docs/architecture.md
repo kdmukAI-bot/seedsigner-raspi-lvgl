@@ -60,7 +60,7 @@ from MicroPython usage.
 ## Build model
 
 - Canonical build: Docker + QEMU ARMv6 emulation using GHCR base image
-- Same `build_stagef_with_local_base.sh` script for local and CI
+- Same `run_build.sh` script for local and CI
 - Pinned dependencies in `versions.lock.toml`
 - ARMv6 codegen enforced and verified via `readelf -A`
 

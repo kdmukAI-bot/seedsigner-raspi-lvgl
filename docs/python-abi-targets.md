@@ -1,4 +1,4 @@
-# Python ABI Targets (Stage F)
+# Python ABI Targets
 
 This document records the canonical Python ABI target(s) for armv6 extension builds.
 
@@ -15,7 +15,7 @@ This document records the canonical Python ABI target(s) for armv6 extension bui
 Generate on each device with:
 
 ```bash
-python scripts/capture_python_abi.py > docs/abi/<env>-pi-abi.json
+python -c "import json,platform,sysconfig; print(json.dumps({'python_version':platform.python_version(),'soabi':sysconfig.get_config_var('SOABI'),'ext_suffix':sysconfig.get_config_var('EXT_SUFFIX'),'platform_machine':platform.machine()},indent=2))" > docs/abi/<env>-pi-abi.json
 ```
 
 ## Fields used for decision
@@ -34,7 +34,7 @@ python scripts/capture_python_abi.py > docs/abi/<env>-pi-abi.json
 - Target Python version: `3.10.10`
 - Target SOABI: `cpython-310-arm-linux-gnueabihf`
 - Target EXT_SUFFIX: `.cpython-310-arm-linux-gnueabihf.so`
-- Toolchain/sysroot source: Stage F armv6-cpython wiring should target dev ABI first; production alignment can follow when runtime capture is available.
+- Toolchain/sysroot source: armv6-cpython build should target dev ABI first; production alignment can follow when runtime capture is available.
 
 ## Production ABI note (lower priority for now)
 - Inferred production expectation from `seedsigner-os` + Buildroot: CPython `3.11.x` / `cpython-311-arm-linux-gnueabihf`.
