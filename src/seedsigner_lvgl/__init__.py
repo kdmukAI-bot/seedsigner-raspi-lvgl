@@ -118,6 +118,15 @@ def main_menu_screen(wait_timeout_ms=0, allow_timeout_fallback=False):
     )
 
 
+def screensaver_screen(wait_timeout_ms=0, allow_timeout_fallback=False):
+    if _native is None:
+        raise NotImplementedError("Native binding not available.")
+    return _native.screensaver_screen(
+        wait_timeout_ms=wait_timeout_ms,
+        allow_timeout_fallback=allow_timeout_fallback,
+    )
+
+
 def clear_result_queue():
     if _native is not None:
         return _native.clear_result_queue()
@@ -144,6 +153,7 @@ __all__ = [
     "lvgl_pump",
     "button_list_screen",
     "main_menu_screen",
+    "screensaver_screen",
     "clear_result_queue",
     "poll_for_result",
 ]

@@ -114,7 +114,14 @@ ext_modules = [
             *lvgl_sources,
         ],
         include_dirs=include_dirs,
-        define_macros=[("LV_CONF_SKIP", "1")],
+        define_macros=[
+            ("LV_CONF_SKIP", "1"),
+            *(
+                [("LV_USE_PERF_MONITOR", "1")]
+                if os.environ.get("LVGL_PERF_MONITOR", "0") == "1"
+                else []
+            ),
+        ],
         extra_compile_args=extra_compile_args,
         extra_link_args=extra_link_args,
         language="c++",
