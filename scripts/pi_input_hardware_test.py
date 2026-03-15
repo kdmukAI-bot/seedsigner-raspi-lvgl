@@ -118,9 +118,12 @@ def main() -> int:
     except KeyboardInterrupt:
         print("\n[hw-input-test] Interrupted.")
 
-    lv.lvgl_shutdown()
-    lv.native_display_shutdown()
-    print("[hw-input-test] Done.")
+    finally:
+        lv.clear_screen()
+        lv.lvgl_shutdown()
+        lv.native_display_shutdown()
+        print("[hw-input-test] Done.")
+
     return 0
 
 
