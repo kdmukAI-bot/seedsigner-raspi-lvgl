@@ -63,8 +63,8 @@ font_sources = [
 
 font_paths = [str(SEEDSIGNER_DIR / "fonts" / f) for f in font_sources]
 
-stagef_cross = os.environ.get("STAGEF_CROSS", "0") == "1"
-stagef_armv6_force = os.environ.get("STAGEF_ARMV6_FORCE", "0") == "1"
+cross_build = os.environ.get("CROSS_BUILD", "0") == "1"
+armv6_force = os.environ.get("ARMV6_FORCE", "0") == "1"
 python_target_include = os.environ.get("PYTHON_TARGET_INCLUDE", "").strip()
 python_target_libdir = os.environ.get("PYTHON_TARGET_LIBDIR", "").strip()
 python_target_ldlibrary = os.environ.get("PYTHON_TARGET_LDLIBRARY", "").strip()
@@ -77,7 +77,7 @@ include_dirs = [
 
 extra_link_args: list[str] = []
 extra_compile_args: list[str] = ["-std=c++17"]
-if stagef_armv6_force:
+if armv6_force:
     extra_compile_args.extend([
         "-march=armv6zk",
         "-mtune=arm1176jzf-s",
@@ -91,11 +91,11 @@ if stagef_armv6_force:
         "-static-libstdc++",
         "-static-libgcc",
     ])
-if stagef_cross and python_target_include:
+if cross_build and python_target_include:
     include_dirs.insert(0, python_target_include)
-if stagef_cross and python_target_libdir:
+if cross_build and python_target_libdir:
     extra_link_args.extend([f"-L{python_target_libdir}"])
-if stagef_cross and python_target_ldlibrary:
+if cross_build and python_target_ldlibrary:
     if python_target_ldlibrary.startswith("lib") and python_target_ldlibrary.endswith((".a", ".so")):
         libname = python_target_ldlibrary[3:].split(".")[0]
         extra_link_args.extend([f"-l{libname}"])
