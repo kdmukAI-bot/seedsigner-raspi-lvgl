@@ -5,6 +5,7 @@ import glob
 import os
 
 from setuptools import Extension, setup
+from setuptools.command.build_ext import build_ext as _build_ext
 
 ROOT = Path(__file__).resolve().parent
 
@@ -128,4 +129,22 @@ ext_modules = [
     )
 ]
 
-setup(ext_modules=ext_modules)
+CXX_ONLY_FLAGS = {"-std=c++17"}
+
+
+class build_ext(_build_ext):
+    """Strip C++-only flags when compiling C source files."""
+
+    def build_extensions(self):
+        _original_compile = self.compiler._compile
+
+        def _compile(obj, src, ext, cc_args, extra_postargs, pp_opts):
+            if src.endswith(".c"):
+                extra_postargs = [a for a in extra_postargs if a not in CXX_ONLY_FLAGS]
+            return _original_compile(obj, src, ext, cc_args, extra_postargs, pp_opts)
+
+        self.compiler._compile = _compile
+        super().build_extensions()
+
+
+setup(ext_modules=ext_modules, cmdclass={"build_ext": build_ext})
