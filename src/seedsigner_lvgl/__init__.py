@@ -58,6 +58,12 @@ def native_display_init(
     )
 
 
+def clear_screen():
+    if _native is None:
+        raise NotImplementedError("Native binding not available.")
+    return _native.clear_screen()
+
+
 def native_display_shutdown():
     if _native is None:
         return None
@@ -128,6 +134,7 @@ __all__ = [
     "lvgl_init",
     "lvgl_shutdown",
     "set_flush_callback",
+    "clear_screen",
     "native_display_init",
     "native_display_shutdown",
     "native_display_test_pattern",
