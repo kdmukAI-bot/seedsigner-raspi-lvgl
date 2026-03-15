@@ -880,6 +880,7 @@ static PyObject *py_set_flush_callback(PyObject *self, PyObject *args) {
 static void native_display_shutdown_internal() {
     // Clear display to black before tearing down hardware.
     if (s_native.ready && s_lvgl_inited) {
+        lv_obj_clean(lv_layer_sys());
         lv_obj_t *scr = lv_obj_create(NULL);
         lv_obj_set_style_bg_color(scr, lv_color_black(), 0);
         lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
@@ -1172,6 +1173,30 @@ static PyObject *py_main_menu_screen(PyObject *self, PyObject *args, PyObject *k
     Py_RETURN_NONE;
 }
 
+static PyObject *py_screensaver_screen(PyObject *self, PyObject *args, PyObject *kwargs) {
+    (void)self;
+    static const char *kwlist[] = {"wait_timeout_ms", "allow_timeout_fallback", NULL};
+    unsigned int wait_timeout_ms = 0;
+    int allow_timeout_fallback = 0;
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|Ip", const_cast<char **>(kwlist),
+                                     &wait_timeout_ms, &allow_timeout_fallback)) {
+        return NULL;
+    }
+
+    try {
+        require_lvgl_runtime();
+        screensaver_screen(NULL);
+        s_last_path = "compiled";
+
+        run_lvgl_until_result_or_timeout(wait_timeout_ms);
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+
+    Py_RETURN_NONE;
+}
+
 static PyObject *py_clear_screen(PyObject *self, PyObject *args) {
     (void)self;
     (void)args;
@@ -1202,6 +1227,7 @@ static PyMethodDef methods[] = {
     {"set_flush_callback", py_set_flush_callback, METH_VARARGS, "Set display flush callback(area, bytes)."},
     {"button_list_screen", py_button_list_screen, METH_VARARGS, "Render button list screen with runtime loop."},
     {"main_menu_screen", (PyCFunction)py_main_menu_screen, METH_VARARGS | METH_KEYWORDS, "Render main menu screen (2x2 grid)."},
+    {"screensaver_screen", (PyCFunction)py_screensaver_screen, METH_VARARGS | METH_KEYWORDS, "Render screensaver (bouncing logo)."},
     {"clear_result_queue", py_clear_result_queue, METH_NOARGS, "Clear result queue."},
     {"poll_for_result", py_poll_for_result, METH_NOARGS, "Poll next result tuple or None."},
     {"_debug_last_path", py_debug_last_path, METH_NOARGS, "Debug helper for bridge path."},

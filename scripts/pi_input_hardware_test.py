@@ -47,6 +47,13 @@ def show_main_menu():
     return pump_until_result()
 
 
+def show_screensaver():
+    """Render screensaver and wait for any key press to exit."""
+    lv.clear_result_queue()
+    lv.screensaver_screen(wait_timeout_ms=1)
+    return pump_until_result()
+
+
 def show_button_list(title, buttons, *, show_back=True):
     """Render a button list screen and wait for input."""
     lv.clear_result_queue()
@@ -87,6 +94,7 @@ def main() -> int:
     print("[hw-input-test] Ctrl+C to exit.\n")
 
     screens = [
+        ("screensaver", None, None),
         ("main_menu", None, None),
         ("list", "Vertical List", ["Alpha", "Beta", "Gamma"]),
         ("list", "Two Items", ["First", "Second"]),
@@ -95,7 +103,11 @@ def main() -> int:
 
     try:
         for i, (kind, title, buttons) in enumerate(screens, 1):
-            if kind == "main_menu":
+            if kind == "screensaver":
+                print(f"[{i}/{len(screens)}] Screen: Screensaver (bouncing logo)")
+                print("    Press any button to continue.")
+                event = show_screensaver()
+            elif kind == "main_menu":
                 print(f"[{i}/{len(screens)}] Screen: Main Menu (2x2 grid)")
                 print("    Use joystick in all 4 directions, center click to select.")
                 event = show_main_menu()

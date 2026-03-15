@@ -32,6 +32,7 @@ docker run --rm --platform "${PLATFORM}" \
   -e LOCK_FILE="${LOCK_FILE:-${CONTAINER_REPO_DIR}/versions.lock.toml}" \
   -e SEEDSIGNER_C_MODULES_DIR="${SEEDSIGNER_C_MODULES_DIR:-${CONTAINER_REPO_DIR}/sources/seedsigner-c-modules}" \
   -e LVGL_ROOT="${LVGL_ROOT:-${CONTAINER_REPO_DIR}/sources/seedsigner-c-modules/third_party/lvgl}" \
+  -e LVGL_PERF_MONITOR="${LVGL_PERF_MONITOR:-0}" \
   "${IMAGE_TAG}" \
   bash ./scripts/stagef_emu_build.sh
 
