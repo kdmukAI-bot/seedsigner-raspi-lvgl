@@ -1,6 +1,6 @@
 """seedsigner_lvgl package facade.
 
-Stage C: prefer native CPython extension when available.
+Prefer native CPython extension when available.
 """
 
 from ._queue import clear_result_queue as _py_clear_result_queue
