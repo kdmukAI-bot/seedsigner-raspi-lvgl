@@ -39,7 +39,7 @@ def native_display_init(
     rst_pin=27,
     bl_pin=24,
     spi_path="/dev/spidev0.0",
-    spi_speed_hz=40_000_000,
+    spi_speed_hz=62_500_000,
     bgr=False,
     lvgl_swap_bytes=True,
 ):
