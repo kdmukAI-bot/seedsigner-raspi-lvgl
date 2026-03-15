@@ -27,7 +27,7 @@ docker image inspect "${IMAGE_TAG}" >/dev/null
 # Cache volumes: use host paths if set (for CI), otherwise Docker named volumes (for local).
 CCACHE_VOLUME="${CCACHE_HOST_DIR:-seedsigner-raspi-lvgl-ccache}"
 VENV_VOLUME="${VENV_HOST_DIR:-seedsigner-raspi-lvgl-venv}"
-CONTAINER_VENV_DIR="${CONTAINER_REPO_DIR}/.venv-build"
+CONTAINER_VENV_DIR="/root/.venv-build"
 
 docker run --rm --platform "${PLATFORM}" \
   -v "${WS_ROOT}:/workspace" \

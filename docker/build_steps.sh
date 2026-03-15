@@ -131,13 +131,13 @@ export CFLAGS="${CFLAGS:-} -march=${ARCH} -mtune=${TUNE} -marm -mfpu=${FPU} -mfl
 export CXXFLAGS="${CXXFLAGS:-} -march=${ARCH} -mtune=${TUNE} -marm -mfpu=${FPU} -mfloat-abi=${FLOAT_ABI}"
 export ARMV6_FORCE=1
 
-VENV_DIR="${ROOT_DIR}/.venv-build"
+VENV_DIR="/root/.venv-build"
 if [[ ! -f "${VENV_DIR}/bin/activate" ]]; then
   "${PYTHON_BIN}" -m venv "${VENV_DIR}"
 fi
 # shellcheck disable=SC1091
 source "${VENV_DIR}/bin/activate"
-python -m pip install --disable-pip-version-check -q pip setuptools wheel pytest
+python -m pip install --disable-pip-version-check -q pip setuptools pytest
 
 rm -f "${ROOT_DIR}"/src/seedsigner_lvgl_native*.so
 
@@ -149,7 +149,7 @@ python "${ROOT_DIR}/setup.py" build_ext --inplace --force \
   --build-temp "${BUILD_DIR}/temp" --build-lib "${BUILD_DIR}/lib"
 
 # Ensure tests import from local src tree.
-PYTHONPATH="${ROOT_DIR}/src" python -m pytest -q "${ROOT_DIR}/tests/test_native_smoke.py"
+PYTHONPATH="${ROOT_DIR}/src" python -m pytest -q -p no:cacheprovider "${ROOT_DIR}/tests/test_native_smoke.py"
 
 ART="$(find "${ROOT_DIR}" -maxdepth 2 -type f -name 'seedsigner_lvgl_native*.so' | sort | tail -n1 || true)"
 if [[ -z "${ART}" ]]; then
