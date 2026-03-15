@@ -878,6 +878,15 @@ static PyObject *py_set_flush_callback(PyObject *self, PyObject *args) {
 }
 
 static void native_display_shutdown_internal() {
+    // Clear display to black before tearing down hardware.
+    if (s_native.ready && s_lvgl_inited) {
+        lv_obj_t *scr = lv_obj_create(NULL);
+        lv_obj_set_style_bg_color(scr, lv_color_black(), 0);
+        lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
+        lv_scr_load(scr);
+        lvgl_runtime_pump(50, 5);
+    }
+
     native_input_shutdown();
 
     if (s_native.spi_fd >= 0) {

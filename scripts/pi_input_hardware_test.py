@@ -119,9 +119,8 @@ def main() -> int:
         print("\n[hw-input-test] Interrupted.")
 
     finally:
-        lv.clear_screen()
-        lv.lvgl_shutdown()
         lv.native_display_shutdown()
+        lv.lvgl_shutdown()
         print("[hw-input-test] Done.")
 
     return 0
