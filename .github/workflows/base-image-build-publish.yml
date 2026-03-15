@@ -29,8 +29,8 @@ on:
     branches: [ main ]
     paths:
       - '.github/workflows/base-image-build-publish.yml'
-      - 'docker/Dockerfile.python-armv6-base'
-      - 'scripts/build_python_armv6_base_in_docker.sh'
+      - 'docker/Dockerfile.ghcr'
+      - 'docker/build_ghcr_base_image.sh'
       - 'versions.lock.toml'
 
 permissions:
@@ -146,7 +146,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: docker/Dockerfile.python-armv6-base
+          file: docker/Dockerfile.ghcr
           platforms: linux/arm/v6
           push: ${{ steps.cfg.outputs.do_push == 'true' }}
           tags: |
@@ -161,11 +161,11 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: docker/Dockerfile.python-armv6-base
+          file: docker/Dockerfile.ghcr
           platforms: linux/arm/v6
           push: false
           load: true
-          tags: local/stagef-armv6-smoke:${{ github.run_id }}
+          tags: local/armv6-smoke:${{ github.run_id }}
           build-args: |
             PYTHON_VERSION=${{ steps.cfg.outputs.python_version }}
 
@@ -173,7 +173,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          IMAGE="local/stagef-armv6-smoke:${{ github.run_id }}"
+          IMAGE="local/armv6-smoke:${{ github.run_id }}"
 
           docker run --rm --platform linux/arm/v6 "$IMAGE" \
             python3 -c "import json,platform,sysconfig; print(json.dumps({'platform_machine': platform.machine(), 'python_version': platform.python_version(), 'soabi': sysconfig.get_config_var('SOABI'), 'ext_suffix': sysconfig.get_config_var('EXT_SUFFIX')}, sort_keys=True))" \

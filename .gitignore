@@ -9,13 +9,11 @@ __pycache__/
 *.py[cod]
 .venv/
 .venv-stagec/
-.venv-stagef-emu/
 .pytest_cache/
 build/
 logs/
 *.so
 *.egg-info/
-.venv-asan/
 *.core
 qemu_python*.core
 CLAUDE.md

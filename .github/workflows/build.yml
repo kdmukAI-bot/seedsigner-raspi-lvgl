@@ -1,4 +1,4 @@
-name: stagef-build
+name: build
 
 on:
   workflow_dispatch:
@@ -23,21 +23,21 @@ on:
   push:
     branches: [ main ]
     paths:
-      - '.github/workflows/stagef-build.yml'
-      - 'scripts/build_stagef_with_local_base.sh'
-      - 'scripts/stagef_emu_build.sh'
+      - '.github/workflows/build.yml'
+      - 'run_build.sh'
+      - 'docker/build_steps.sh'
       - 'setup.py'
       - 'versions.lock.toml'
   pull_request:
     paths:
-      - '.github/workflows/stagef-build.yml'
-      - 'scripts/build_stagef_with_local_base.sh'
-      - 'scripts/stagef_emu_build.sh'
+      - '.github/workflows/build.yml'
+      - 'run_build.sh'
+      - 'docker/build_steps.sh'
       - 'setup.py'
       - 'versions.lock.toml'
 
 jobs:
-  stagef-emu-armv6:
+  build-armv6:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout seedsigner-raspi-lvgl
@@ -112,15 +112,25 @@ jobs:
           test -f "${GITHUB_WORKSPACE}/sources/seedsigner-c-modules/components/seedsigner/seedsigner.cpp"
           test -f "${GITHUB_WORKSPACE}/sources/seedsigner-c-modules/third_party/lvgl/lvgl.h"
 
-      - name: Build Stage F using base image
+      - name: Restore ccache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.ci-ccache
+          key: ccache-build-${{ steps.cfg.outputs.py_series }}-${{ hashFiles('setup.py', 'versions.lock.toml') }}
+          restore-keys: |
+            ccache-build-${{ steps.cfg.outputs.py_series }}-
+
+      - name: Build ARMv6 extension
         env:
           WS_ROOT: ${{ github.workspace }}
           IMAGE_TAG: ${{ steps.cfg.outputs.image_tag }}
           PLATFORM: linux/arm/v6
           SEEDSIGNER_C_MODULES_DIR: /workspace/sources/seedsigner-c-modules
           LVGL_ROOT: /workspace/sources/seedsigner-c-modules/third_party/lvgl
+          CCACHE_HOST_DIR: ${{ github.workspace }}/.ci-ccache
         run: |
-          ./scripts/build_stagef_with_local_base.sh
+          mkdir -p "${CCACHE_HOST_DIR}"
+          ./run_build.sh
 
       - name: Locate built extension
         id: art
@@ -131,16 +141,16 @@ jobs:
           echo "artifact=${ART}" >> "$GITHUB_OUTPUT"
           echo "artifact_basename=$(basename "$ART")" >> "$GITHUB_OUTPUT"
 
-      - name: Upload Stage F extension artifact
+      - name: Upload extension artifact
         uses: actions/upload-artifact@v4
         with:
-          name: stagef-${{ steps.cfg.outputs.py_series }}-${{ github.sha }}
+          name: build-${{ steps.cfg.outputs.py_series }}-${{ github.sha }}
           path: ${{ steps.art.outputs.artifact }}
           if-no-files-found: error
 
-      - name: Upload Stage F logs
+      - name: Upload build logs
         uses: actions/upload-artifact@v4
         with:
-          name: stagef-logs-${{ github.run_id }}
-          path: ${{ github.workspace }}/logs/stagef/
+          name: build-logs-${{ github.run_id }}
+          path: ${{ github.workspace }}/logs/
           if-no-files-found: error
