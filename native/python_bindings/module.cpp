@@ -915,7 +915,7 @@ static PyObject *py_native_display_init(PyObject *self, PyObject *args, PyObject
     int rst_pin = 27;
     int bl_pin = 24;
     const char *spi_path = "/dev/spidev0.0";
-    unsigned int spi_speed_hz = 40000000;
+    unsigned int spi_speed_hz = 62500000;
     int bgr = 0;
     int lvgl_swap_bytes = 1;
 
