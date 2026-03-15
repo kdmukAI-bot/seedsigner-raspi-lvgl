@@ -43,7 +43,7 @@ static unsigned int s_count = 0;
 
 static bool s_lvgl_inited = false;
 static lv_disp_draw_buf_t s_draw_buf;
-static lv_color_t s_buf1[240 * 10];
+static lv_color_t s_buf1[240 * 240];
 static lv_indev_t *s_input_indev = NULL;
 static uint64_t s_last_tick_ms = 0;
 static uint32_t s_hor_res = 240;
