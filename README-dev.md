@@ -4,112 +4,85 @@
 
 ```bash
 git submodule update --init --recursive   # pulls seedsigner-c-modules + LVGL
-python -m venv .venv
-source .venv/bin/activate
-pip install -U pip pytest
 ```
 
-> The repo includes `seedsigner-c-modules` as a git submodule under
-> `sources/seedsigner-c-modules`, which itself contains LVGL as a nested
-> submodule (`third_party/lvgl`). The `--recursive` flag is required.
-
-## Run tests
+## Build
 
 ```bash
-python -m pytest
+./run_build.sh
 ```
 
-## Build paths
-
-### Host build (native extension for local arch)
-
-```bash
-./scripts/stagec_build.sh
-```
-
-Docker variant:
-```bash
-TARGET_ARCH=host ./scripts/build_stagec_in_docker.sh
-```
-
-### ARMv6 build (Pi Zero target)
-
-Using GHCR base image (preferred — produces ARMv6-compatible artifacts):
-```bash
-./scripts/build_stagef_with_local_base.sh
-```
-
-Override image source:
-```bash
-IMAGE_TAG=seedsigner-raspi-lvgl/python-armv6:py310-dev-local ./scripts/build_stagef_with_local_base.sh
-```
-
-> **ARMv6 requirement**: use `build_stagef_with_local_base.sh` for Pi Zero
-> artifacts. The `build_stagef_emu_in_docker.sh` path runs `linux/arm/v7`
-> emulation and can produce artifacts that fail ARMv6 compatibility.
-
-Alternative (emulated ARM container, slower):
-```bash
-./scripts/build_stagef_emu_in_docker.sh
-```
-
-### Build ARMv6 Python base image
-
-```bash
-PYTHON_VERSION=3.10.10 PY_SERIES=py310 ./scripts/build_python_armv6_base_in_docker.sh
-```
-
-## Build logs
-
-All builds write timestamped logs under `logs/`:
-- `logs/stageb/` — Docker build skeleton
-- `logs/staged/` — native binding builds
-- `logs/stagef/` — ARMv6 CPython extension builds
-- `logs/base-image/` — Python base image builds
-
-## Environment variables
-
-| Variable | Purpose | Default |
-|----------|---------|---------|
-| `SEEDSIGNER_C_MODULES_DIR` | Path to c-modules source | `sources/seedsigner-c-modules` |
-| `LVGL_ROOT` | Path to LVGL source | `sources/seedsigner-c-modules/third_party/lvgl` |
-| `WS_ROOT` | Workspace root for Docker mounts | auto-detected |
-| `IMAGE_TAG` | GHCR base image for ARMv6 builds | `py310-dev` tag |
-| `TARGET_ARCH` | Build target (`host`, `armv6`) | varies by script |
-| `LOCK_FILE` | Version lock file | `versions.lock.toml` |
-| `ABI_JSON` | ABI reference file | `docs/abi/dev-pi-abi.json` |
+This produces an ARMv6 CPython extension (`.so`) targeting the Pi Zero. The
+build runs inside a Docker container under QEMU ARM emulation. Expect ~13
+minutes for the first build; subsequent builds with a warm ccache complete
+in ~1 minute.
 
 ## Pi hardware testing
 
-Full guide: `docs/pi-hardware-test.md`
+See `docs/pi-hardware-test.md`.
 
-### Display smoke test
+---
 
+## Build details
+
+The build uses a pre-built base image hosted on GitHub Container Registry
+(GHCR). The GHCR image contains a pinned Python toolchain and ARMv6 compiler,
+ensuring reproducible builds across local dev machines and CI.
+
+### Build caching
+
+Local builds use Docker named volumes to persist caches across runs:
+
+- **ccache** (`seedsigner-raspi-lvgl-ccache`) — compiled object cache, avoids recompiling unchanged translation units under QEMU emulation
+- **venv** (`seedsigner-raspi-lvgl-venv`) — Python virtual environment with build dependencies
+
+To reset caches:
 ```bash
-python scripts/pi_display_smoke.py --hold-seconds 1.5
+docker volume rm seedsigner-raspi-lvgl-ccache seedsigner-raspi-lvgl-venv
 ```
 
-Expected: white frame, black frame, checkerboard frame.
+CI builds use `actions/cache` for ccache persistence across workflow runs.
 
-### Input smoke test (GPIO polling only)
+### Build logs
+
+All builds write timestamped logs to `logs/`.
+
+### Rebuilding the GHCR base image
+
+This is rarely needed — only when changing the Python version or system
+toolchain. The base image definition is `docker/Dockerfile.ghcr`.
 
 ```bash
-python scripts/pi_input_smoke.py
+PYTHON_VERSION=3.10.10 PY_SERIES=py310 ./docker/build_ghcr_base_image.sh
 ```
 
-Expected: prints timestamped press/repeat events. Exit with Ctrl+C.
+### Submodules
 
-### Hardware input test (display + navigation, end-to-end)
+The repo includes `seedsigner-c-modules` as a git submodule under
+`sources/seedsigner-c-modules`, which itself contains LVGL as a nested
+submodule (`third_party/lvgl`). The `--recursive` flag is required.
 
+### Environment variables
+
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `IMAGE_TAG` | GHCR base image for ARMv6 builds | `py310-dev` tag |
+| `LVGL_PERF_MONITOR` | Enable LVGL FPS/CPU overlay | `0` |
+| `SEEDSIGNER_C_MODULES_DIR` | Path to c-modules source | `sources/seedsigner-c-modules` |
+| `LVGL_ROOT` | Path to LVGL source | `sources/seedsigner-c-modules/third_party/lvgl` |
+| `WS_ROOT` | Workspace root for Docker mounts | auto-detected |
+| `LOCK_FILE` | Version lock file | `versions.lock.toml` |
+| `ABI_JSON` | ABI reference file | `docs/abi/dev-pi-abi.json` |
+| `CCACHE_HOST_DIR` | Host path for ccache (CI use) | Docker named volume |
+
+#### Examples
+
+Enable LVGL performance monitor overlay (displays FPS/CPU on screen):
 ```bash
-PYTHONPATH=src python scripts/pi_input_hardware_test.py
+LVGL_PERF_MONITOR=1 ./run_build.sh
 ```
 
-Renders screens on the display, waits for joystick/button input, prints
-the resulting event. Verifies the full path: GPIO polling → LVGL indev →
-c-modules navigation → screen result → Python event tuple.
-
-## Input behavior spec
-
-See `docs/input-button-behavior.md` for the canonical navigation and input
-contract (focus zones, directional rules, KEY1/2/3 policy).
+Use a locally-built base image instead of the GHCR image:
+```bash
+IMAGE_TAG=seedsigner-raspi-lvgl/python-armv6:py310-dev-local ./run_build.sh
+```
