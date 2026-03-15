@@ -140,10 +140,13 @@ source "${VENV_DIR}/bin/activate"
 python -m pip install --disable-pip-version-check -q pip setuptools wheel pytest
 
 rm -f "${ROOT_DIR}"/src/seedsigner_lvgl_native*.so
-rm -rf "${ROOT_DIR}"/build
 
 # Force a fresh native extension build so architecture flags are applied deterministically.
-python "${ROOT_DIR}/setup.py" build_ext --inplace --force
+# Build artifacts go to /tmp/build to keep the project tree clean.
+BUILD_DIR="/tmp/build"
+rm -rf "${BUILD_DIR}"
+python "${ROOT_DIR}/setup.py" build_ext --inplace --force \
+  --build-temp "${BUILD_DIR}/temp" --build-lib "${BUILD_DIR}/lib"
 
 # Ensure tests import from local src tree.
 PYTHONPATH="${ROOT_DIR}/src" python -m pytest -q "${ROOT_DIR}/tests/test_native_smoke.py"
