@@ -31,12 +31,23 @@ lvgl_sources_all = glob.glob(str(LVGL_ROOT / "src" / "**" / "*.c"), recursive=Tr
 # Exclude architecture/accelerator-specific backends that can force higher CPU attrs
 # and are not needed for current Pi Zero portability path.
 EXCLUDE_SUBSTRINGS = [
-    "/src/draw/arm2d/",
+    # Hardware-specific draw backends (not needed for Pi Zero SW rendering)
+    "/src/draw/dma2d/",
+    "/src/draw/espressif/",
+    "/src/draw/eve/",
+    "/src/draw/nanovg/",
+    "/src/draw/nema_gfx/",
     "/src/draw/nxp/",
+    "/src/draw/opengles/",
     "/src/draw/renesas/",
-    "/src/draw/swm341_dma2d/",
-    "/src/draw/stm32_dma2d/",
     "/src/draw/sdl/",
+    "/src/draw/vg_lite/",
+    # Architecture-specific SW blend backends (ARMv7+, RISC-V, etc.)
+    "/src/draw/sw/blend/neon/",
+    "/src/draw/sw/blend/helium/",
+    "/src/draw/sw/blend/arm2d/",
+    "/src/draw/sw/blend/riscv_v/",
+    "/src/draw/sw/arm2d/",
 ]
 
 lvgl_sources = [
@@ -117,6 +128,7 @@ ext_modules = [
         include_dirs=include_dirs,
         define_macros=[
             ("LV_CONF_SKIP", "1"),
+            ("LV_USE_DRAW_SW_ASM", "LV_DRAW_SW_ASM_NONE"),
             *(
                 [("LV_USE_PERF_MONITOR", "1")]
                 if os.environ.get("LVGL_PERF_MONITOR", "0") == "1"
