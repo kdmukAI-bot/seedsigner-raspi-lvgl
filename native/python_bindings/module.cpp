@@ -346,6 +346,24 @@ static void native_input_init() {
     fprintf(stderr, "[seedsigner_lvgl_native] input init OK: 8 lines open (pull-up requested)\n");
 }
 
+// Open gpiochip and initialize only input lines (no display GPIO).
+// For use when display is owned by an external driver (e.g. SeedSigner's Python ST7789).
+static void native_input_only_init() {
+    if (s_input.ready) {
+        return;  // already initialized
+    }
+    if (s_native.gpio_chip_fd < 0) {
+        s_native.gpio_chip_fd = open("/dev/gpiochip0", O_RDWR | O_CLOEXEC);
+        if (s_native.gpio_chip_fd < 0) {
+            throw std::runtime_error("open /dev/gpiochip0 failed errno=" + std::to_string(errno));
+        }
+        // Mark gpiochip as ready so native_input_init can use it,
+        // but display lines are NOT claimed.
+        s_native.gpiochip_ready = true;
+    }
+    native_input_init();
+}
+
 static void native_input_read_cb(lv_indev_t *indev, lv_indev_data_t *data) {
     (void)indev;
     if (!s_input.ready) {
@@ -777,10 +795,16 @@ static void lvgl_runtime_pump(unsigned int duration_ms, unsigned int sleep_ms) {
     }
 }
 
-static void run_lvgl_until_result_or_timeout(unsigned int timeout_ms) {
+// Returns 0 on result, -1 on Python signal (e.g. KeyboardInterrupt).
+static int run_lvgl_until_result_or_timeout(unsigned int timeout_ms) {
     auto start = std::chrono::steady_clock::now();
     while (s_count == 0) {
         lvgl_runtime_pump(5, 1);
+
+        // Allow Python to deliver pending signals (Ctrl+C, etc.)
+        if (PyErr_CheckSignals() != 0) {
+            return -1;
+        }
 
         if (timeout_ms == 0) {
             continue;  // no timeout — run until a result arrives
@@ -791,6 +815,7 @@ static void run_lvgl_until_result_or_timeout(unsigned int timeout_ms) {
             break;
         }
     }
+    return 0;
 }
 
 static PyObject *py_clear_result_queue(PyObject *self, PyObject *args) {
@@ -989,6 +1014,18 @@ static PyObject *py_native_display_shutdown(PyObject *self, PyObject *args) {
     Py_RETURN_NONE;
 }
 
+static PyObject *py_native_input_init(PyObject *self, PyObject *args) {
+    (void)self;
+    (void)args;
+    try {
+        native_input_only_init();
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+    Py_RETURN_NONE;
+}
+
 static PyObject *py_set_flush_mode(PyObject *self, PyObject *args) {
     (void)self;
     const char *mode = NULL;
@@ -1116,7 +1153,9 @@ static PyObject *py_button_list_screen(PyObject *self, PyObject *args) {
         // indev/group ownership. Do not attach a parallel binding-layer group here.
         s_last_path = "compiled";
 
-        run_lvgl_until_result_or_timeout(wait_timeout_ms);
+        if (run_lvgl_until_result_or_timeout(wait_timeout_ms) < 0) {
+            return NULL;  // Python signal pending (e.g. KeyboardInterrupt)
+        }
 
         if (s_count == 0 && allow_timeout_fallback) {
             char label_buf[RESULT_LABEL_MAX];
@@ -1147,7 +1186,9 @@ static PyObject *py_main_menu_screen(PyObject *self, PyObject *args, PyObject *k
         main_menu_screen(NULL);
         s_last_path = "compiled";
 
-        run_lvgl_until_result_or_timeout(wait_timeout_ms);
+        if (run_lvgl_until_result_or_timeout(wait_timeout_ms) < 0) {
+            return NULL;  // Python signal pending (e.g. KeyboardInterrupt)
+        }
 
         if (s_count == 0 && allow_timeout_fallback) {
             queue_push(RESULT_BUTTON_SELECTED, 0, "Scan");
@@ -1176,7 +1217,9 @@ static PyObject *py_screensaver_screen(PyObject *self, PyObject *args, PyObject 
         screensaver_screen(NULL);
         s_last_path = "compiled";
 
-        run_lvgl_until_result_or_timeout(wait_timeout_ms);
+        if (run_lvgl_until_result_or_timeout(wait_timeout_ms) < 0) {
+            return NULL;  // Python signal pending (e.g. KeyboardInterrupt)
+        }
     } catch (const std::exception &e) {
         PyErr_SetString(PyExc_RuntimeError, e.what());
         return NULL;
@@ -1207,6 +1250,7 @@ static PyMethodDef methods[] = {
     {"lvgl_shutdown", py_lvgl_shutdown, METH_NOARGS, "Shutdown LVGL runtime."},
     {"lvgl_pump", (PyCFunction)py_lvgl_pump, METH_VARARGS | METH_KEYWORDS, "Pump LVGL timers/input for duration_ms."},
     {"native_display_init", (PyCFunction)py_native_display_init, METH_VARARGS | METH_KEYWORDS, "Init native ST7789 backend."},
+    {"native_input_init", py_native_input_init, METH_NOARGS, "Init GPIO input only (no display)."},
     {"clear_screen", py_clear_screen, METH_NOARGS, "Clear display to black."},
     {"native_display_shutdown", py_native_display_shutdown, METH_NOARGS, "Shutdown native ST7789 backend."},
     {"native_display_test_pattern", py_native_display_test_pattern, METH_NOARGS, "Render native RGB565 test bands."},
