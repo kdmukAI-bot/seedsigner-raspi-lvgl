@@ -130,7 +130,7 @@ ext_modules = [
             ("LV_CONF_SKIP", "1"),
             ("LV_USE_DRAW_SW_ASM", "LV_DRAW_SW_ASM_NONE"),
             *(
-                [("LV_USE_PERF_MONITOR", "1")]
+                [("LV_USE_SYSMON", "1"), ("LV_USE_PERF_MONITOR", "1")]
                 if os.environ.get("LVGL_PERF_MONITOR", "0") == "1"
                 else []
             ),

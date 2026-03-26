@@ -46,7 +46,7 @@ RUN ./configure \
       --prefix=${PY_PREFIX} \
       --enable-optimizations \
       --with-ensurepip=install \
-    && make -j"$(nproc)" \
+    && make -j"$(nproc)" PROFILE_TASK="-m test --pgo --timeout=\$(TESTTIMEOUT) -j$(nproc)" \
     && make install
 
 WORKDIR /workspace
