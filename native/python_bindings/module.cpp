@@ -776,15 +776,20 @@ static std::string py_cfg_to_json(PyObject *cfg) {
     return out;
 }
 
-static void lvgl_runtime_pump(unsigned int duration_ms, unsigned int sleep_ms) {
+// Returns 0 normally, -1 if a Python signal is pending.
+static int lvgl_runtime_pump(unsigned int duration_ms, unsigned int sleep_ms) {
     if (!s_lvgl_inited) {
-        return;
+        return 0;
     }
 
     auto start = std::chrono::steady_clock::now();
     while (true) {
         lvgl_tick_update();
         lv_timer_handler();
+
+        if (PyErr_CheckSignals() != 0) {
+            return -1;
+        }
 
         auto now = std::chrono::steady_clock::now();
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - start).count();
@@ -793,16 +798,14 @@ static void lvgl_runtime_pump(unsigned int duration_ms, unsigned int sleep_ms) {
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(sleep_ms));
     }
+    return 0;
 }
 
 // Returns 0 on result, -1 on Python signal (e.g. KeyboardInterrupt).
 static int run_lvgl_until_result_or_timeout(unsigned int timeout_ms) {
     auto start = std::chrono::steady_clock::now();
     while (s_count == 0) {
-        lvgl_runtime_pump(5, 1);
-
-        // Allow Python to deliver pending signals (Ctrl+C, etc.)
-        if (PyErr_CheckSignals() != 0) {
+        if (lvgl_runtime_pump(5, 1) < 0) {
             return -1;
         }
 
@@ -868,7 +871,9 @@ static PyObject *py_lvgl_pump(PyObject *self, PyObject *args, PyObject *kwargs) 
     }
 
     require_lvgl_runtime();
-    lvgl_runtime_pump(duration_ms, sleep_ms);
+    if (lvgl_runtime_pump(duration_ms, sleep_ms) < 0) {
+        return NULL;
+    }
     Py_RETURN_NONE;
 }
 
@@ -1214,10 +1219,28 @@ static PyObject *py_screensaver_screen(PyObject *self, PyObject *args, PyObject 
 
     try {
         require_lvgl_runtime();
+
+        // Save the active screen before the screensaver replaces it.
+        // screensaver_screen() preserves (does not delete) this screen.
+        lv_obj_t *prev_scr = lv_scr_act();
+
         screensaver_screen(NULL);
         s_last_path = "compiled";
 
-        if (run_lvgl_until_result_or_timeout(wait_timeout_ms) < 0) {
+        int rc = run_lvgl_until_result_or_timeout(wait_timeout_ms);
+
+        // Restore the previous screen: delete the screensaver screen
+        // (triggers its cleanup handler which restores the indev group),
+        // then reload the preserved screen.
+        lv_obj_t *saver_scr = lv_scr_act();
+        if (prev_scr && prev_scr != saver_scr) {
+            lv_scr_load(prev_scr);
+            lv_obj_delete(saver_scr);
+            // Pump briefly to flush the restored screen to the display.
+            lvgl_runtime_pump(50, 5);
+        }
+
+        if (rc < 0) {
             return NULL;  // Python signal pending (e.g. KeyboardInterrupt)
         }
     } catch (const std::exception &e) {
