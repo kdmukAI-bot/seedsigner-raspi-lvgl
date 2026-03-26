@@ -72,6 +72,20 @@ def native_input_init():
     return _native.native_input_init()
 
 
+def save_screen():
+    """Save the active LVGL screen and indev group for later restore."""
+    if _native is None:
+        raise NotImplementedError("Native binding not available.")
+    return _native.save_screen()
+
+
+def restore_screen():
+    """Restore previously saved LVGL screen and indev group."""
+    if _native is None:
+        raise NotImplementedError("Native binding not available.")
+    return _native.restore_screen()
+
+
 def native_display_shutdown():
     if _native is None:
         return None
@@ -154,6 +168,8 @@ __all__ = [
     "clear_screen",
     "native_display_init",
     "native_input_init",
+    "save_screen",
+    "restore_screen",
     "native_display_shutdown",
     "native_display_test_pattern",
     "native_debug_config",

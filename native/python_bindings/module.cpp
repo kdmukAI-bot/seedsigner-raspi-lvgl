@@ -1219,28 +1219,10 @@ static PyObject *py_screensaver_screen(PyObject *self, PyObject *args, PyObject 
 
     try {
         require_lvgl_runtime();
-
-        // Save the active screen before the screensaver replaces it.
-        // screensaver_screen() preserves (does not delete) this screen.
-        lv_obj_t *prev_scr = lv_scr_act();
-
         screensaver_screen(NULL);
         s_last_path = "compiled";
 
-        int rc = run_lvgl_until_result_or_timeout(wait_timeout_ms);
-
-        // Restore the previous screen: delete the screensaver screen
-        // (triggers its cleanup handler which restores the indev group),
-        // then reload the preserved screen.
-        lv_obj_t *saver_scr = lv_scr_act();
-        if (prev_scr && prev_scr != saver_scr) {
-            lv_scr_load(prev_scr);
-            lv_obj_delete(saver_scr);
-            // Pump briefly to flush the restored screen to the display.
-            lvgl_runtime_pump(50, 5);
-        }
-
-        if (rc < 0) {
+        if (run_lvgl_until_result_or_timeout(wait_timeout_ms) < 0) {
             return NULL;  // Python signal pending (e.g. KeyboardInterrupt)
         }
     } catch (const std::exception &e) {
@@ -1248,6 +1230,74 @@ static PyObject *py_screensaver_screen(PyObject *self, PyObject *args, PyObject 
         return NULL;
     }
 
+    Py_RETURN_NONE;
+}
+
+// --- Screen save / restore ------------------------------------------------
+// General-purpose mechanism for preserving the active LVGL screen across
+// an overlay (e.g. screensaver, modal dialog). The Python side decides
+// when to save and restore; the C side just holds the pointer.
+
+static lv_obj_t  *s_saved_screen = NULL;
+static lv_group_t *s_saved_group = NULL;
+
+static PyObject *py_save_screen(PyObject *self, PyObject *args) {
+    (void)self; (void)args;
+    try {
+        require_lvgl_runtime();
+        s_saved_screen = lv_scr_act();
+
+        // Save the current indev group.
+        s_saved_group = NULL;
+        lv_indev_t *indev = NULL;
+        while ((indev = lv_indev_get_next(indev)) != NULL) {
+            if (lv_indev_get_type(indev) == LV_INDEV_TYPE_KEYPAD ||
+                lv_indev_get_type(indev) == LV_INDEV_TYPE_ENCODER) {
+                s_saved_group = lv_indev_get_group(indev);
+                break;
+            }
+        }
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+    Py_RETURN_NONE;
+}
+
+static PyObject *py_restore_screen(PyObject *self, PyObject *args) {
+    (void)self; (void)args;
+    try {
+        require_lvgl_runtime();
+        if (!s_saved_screen) {
+            Py_RETURN_NONE;  // nothing saved — no-op
+        }
+
+        lv_obj_t *cur_scr = lv_scr_act();
+        if (cur_scr != s_saved_screen) {
+            lv_scr_load(s_saved_screen);
+            lv_obj_delete_async(cur_scr);
+        }
+
+        // Restore the saved indev group.
+        if (s_saved_group) {
+            lv_indev_t *indev = NULL;
+            while ((indev = lv_indev_get_next(indev)) != NULL) {
+                if (lv_indev_get_type(indev) == LV_INDEV_TYPE_KEYPAD ||
+                    lv_indev_get_type(indev) == LV_INDEV_TYPE_ENCODER) {
+                    lv_indev_set_group(indev, s_saved_group);
+                }
+            }
+        }
+
+        // Pump to process the async delete and flush the restored screen.
+        lvgl_runtime_pump(50, 5);
+
+        s_saved_screen = NULL;
+        s_saved_group = NULL;
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
     Py_RETURN_NONE;
 }
 
@@ -1274,6 +1324,8 @@ static PyMethodDef methods[] = {
     {"lvgl_pump", (PyCFunction)py_lvgl_pump, METH_VARARGS | METH_KEYWORDS, "Pump LVGL timers/input for duration_ms."},
     {"native_display_init", (PyCFunction)py_native_display_init, METH_VARARGS | METH_KEYWORDS, "Init native ST7789 backend."},
     {"native_input_init", py_native_input_init, METH_NOARGS, "Init GPIO input only (no display)."},
+    {"save_screen", py_save_screen, METH_NOARGS, "Save active LVGL screen for later restore."},
+    {"restore_screen", py_restore_screen, METH_NOARGS, "Restore previously saved LVGL screen."},
     {"clear_screen", py_clear_screen, METH_NOARGS, "Clear display to black."},
     {"native_display_shutdown", py_native_display_shutdown, METH_NOARGS, "Shutdown native ST7789 backend."},
     {"native_display_test_pattern", py_native_display_test_pattern, METH_NOARGS, "Render native RGB565 test bands."},
