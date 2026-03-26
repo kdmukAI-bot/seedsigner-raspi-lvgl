@@ -64,6 +64,14 @@ def clear_screen():
     return _native.clear_screen()
 
 
+def native_input_init():
+    """Initialize GPIO input only (no display). For use when display is
+    owned by an external driver."""
+    if _native is None:
+        raise NotImplementedError("Native binding not available.")
+    return _native.native_input_init()
+
+
 def native_display_shutdown():
     if _native is None:
         return None
@@ -145,6 +153,7 @@ __all__ = [
     "set_flush_callback",
     "clear_screen",
     "native_display_init",
+    "native_input_init",
     "native_display_shutdown",
     "native_display_test_pattern",
     "native_debug_config",
