@@ -19,10 +19,7 @@ on:
 
 jobs:
   build-armv6:
-    runs-on: docker
-    container:
-      image: docker:27
-      options: --privileged
+    runs-on: ubuntu-latest
     env:
       PY_SERIES: py310-dev
       IMAGE_TAG: registry.gitlab.com/kdmukai-bot/seedsigner-raspi-lvgl/python-armv6:py310-dev
