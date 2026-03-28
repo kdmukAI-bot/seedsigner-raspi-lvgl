@@ -9,6 +9,7 @@ build-armv6:
   variables:
     DOCKER_TLS_CERTDIR: ""
     DOCKER_HOST: tcp://docker:2375
+    GIT_SUBMODULE_STRATEGY: recursive
     # Build configuration
     BUILD_PROFILE: dev
     PY_SERIES: py310-dev
@@ -36,16 +37,15 @@ build-armv6:
 
       docker pull --platform linux/arm/v6 "${IMAGE_TAG}"
 
-      # Run the build inside the ARM container.
-      # Mount the full workspace so run_build.sh can resolve relative paths.
-      WS_ROOT="$(pwd)"
+      # GitLab DinD: the Docker daemon runs in a separate container, so volume
+      # mounts from the job container are not visible.  Use docker cp instead.
       CONTAINER_REPO_DIR="/workspace"
+      BUILD_CONTAINER="armv6-build-$$"
 
-      mkdir -p logs .ci-ccache
+      mkdir -p logs
 
-      docker run --rm --platform linux/arm/v6 \
-        -v "${WS_ROOT}:${CONTAINER_REPO_DIR}" \
-        -v "${WS_ROOT}/.ci-ccache:/root/.cache/ccache" \
+      docker create --name "${BUILD_CONTAINER}" \
+        --platform linux/arm/v6 \
         -w "${CONTAINER_REPO_DIR}" \
         -e RUN_TS="$(date -u +%Y%m%d-%H%M%S)" \
         -e ABI_JSON="${CONTAINER_REPO_DIR}/docs/abi/dev-pi-abi.json" \
@@ -56,6 +56,18 @@ build-armv6:
         "${IMAGE_TAG}" \
         bash ./docker/build_steps.sh
 
+      # Copy workspace into the build container.
+      docker cp . "${BUILD_CONTAINER}:${CONTAINER_REPO_DIR}"
+
+      # Run the build.
+      docker start -a "${BUILD_CONTAINER}"
+
+      # Copy artifacts back out.
+      docker cp "${BUILD_CONTAINER}:${CONTAINER_REPO_DIR}/src/." ./src/
+      docker cp "${BUILD_CONTAINER}:${CONTAINER_REPO_DIR}/logs/." ./logs/ || true
+
+      docker rm "${BUILD_CONTAINER}" || true
+
       # Verify artifact exists.
       ls -la src/seedsigner_lvgl_native*.so
   artifacts:
@@ -63,7 +75,3 @@ build-armv6:
       - src/seedsigner_lvgl_native*.so
       - logs/
     expire_in: 30 days
-  cache:
-    key: ccache-${PY_SERIES}
-    paths:
-      - .ci-ccache/
