@@ -19,7 +19,7 @@ on:
 
 jobs:
   build-armv6:
-    runs-on: ubuntu-latest
+    runs-on: native
     env:
       PY_SERIES: py310-dev
       IMAGE_TAG: registry.gitlab.com/kdmukai-bot/seedsigner-raspi-lvgl/python-armv6:py310-dev
@@ -46,10 +46,6 @@ jobs:
 
           WS_ROOT="${GITHUB_WORKSPACE}"
           CONTAINER_REPO_DIR="/workspace"
-
-          echo "WS_ROOT=${WS_ROOT}"
-          echo "pwd=$(pwd)"
-          ls -la "${WS_ROOT}/docker/build_steps.sh"
 
           mkdir -p logs
 
