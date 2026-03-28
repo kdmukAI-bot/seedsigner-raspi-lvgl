@@ -44,8 +44,12 @@ jobs:
         run: |
           set -euo pipefail
 
-          WS_ROOT="$(pwd)"
+          WS_ROOT="${GITHUB_WORKSPACE}"
           CONTAINER_REPO_DIR="/workspace"
+
+          echo "WS_ROOT=${WS_ROOT}"
+          echo "pwd=$(pwd)"
+          ls -la "${WS_ROOT}/docker/build_steps.sh"
 
           mkdir -p logs
 
