@@ -19,7 +19,7 @@ if [[ -z "${PYTHON_BIN}" ]]; then
 fi
 
 # Python 3.10 does not include tomllib; install lightweight parser for lock read.
-"${PYTHON_BIN}" -m pip install --disable-pip-version-check -q tomli
+"${PYTHON_BIN}" -c "import tomli" 2>/dev/null || "${PYTHON_BIN}" -m pip install --disable-pip-version-check -q tomli
 
 "${PYTHON_BIN}" - <<'PY' "${ABI_JSON}" "${LOCK_FILE}"
 import json, platform, sysconfig, sys
@@ -82,7 +82,7 @@ fi
 echo "[build] compiler CC=${CC} CXX=${CXX}"
 
 # Force Pi Zero-compatible ARMv6 code generation from lock values.
-ARCH="$("${PYTHON_BIN}" - <<'PY' "${LOCK_FILE}"
+read -r ARCH TUNE FPU FLOAT_ABI <<< "$("${PYTHON_BIN}" - <<'PY' "${LOCK_FILE}"
 try:
     import tomllib
 except Exception:
@@ -90,40 +90,8 @@ except Exception:
 import sys
 with open(sys.argv[1], 'rb') as f:
     lock = tomllib.load(f)
-print(lock['toolchain']['arch'])
-PY
-)"
-TUNE="$("${PYTHON_BIN}" - <<'PY' "${LOCK_FILE}"
-try:
-    import tomllib
-except Exception:
-    import tomli as tomllib
-import sys
-with open(sys.argv[1], 'rb') as f:
-    lock = tomllib.load(f)
-print(lock['toolchain']['tune'])
-PY
-)"
-FPU="$("${PYTHON_BIN}" - <<'PY' "${LOCK_FILE}"
-try:
-    import tomllib
-except Exception:
-    import tomli as tomllib
-import sys
-with open(sys.argv[1], 'rb') as f:
-    lock = tomllib.load(f)
-print(lock['toolchain']['fpu'])
-PY
-)"
-FLOAT_ABI="$("${PYTHON_BIN}" - <<'PY' "${LOCK_FILE}"
-try:
-    import tomllib
-except Exception:
-    import tomli as tomllib
-import sys
-with open(sys.argv[1], 'rb') as f:
-    lock = tomllib.load(f)
-print(lock['toolchain']['float_abi'])
+tc = lock['toolchain']
+print(tc['arch'], tc['tune'], tc['fpu'], tc['float_abi'])
 PY
 )"
 
@@ -137,7 +105,7 @@ if [[ ! -f "${VENV_DIR}/bin/activate" ]]; then
 fi
 # shellcheck disable=SC1091
 source "${VENV_DIR}/bin/activate"
-python -m pip install --disable-pip-version-check -q pip setuptools pytest
+python -c "import setuptools, pytest" 2>/dev/null || python -m pip install --disable-pip-version-check -q pip setuptools pytest
 
 rm -f "${ROOT_DIR}"/src/seedsigner_lvgl_native*.so
 
@@ -145,7 +113,7 @@ rm -f "${ROOT_DIR}"/src/seedsigner_lvgl_native*.so
 # Build artifacts go to /tmp/build to keep the project tree clean.
 BUILD_DIR="/tmp/build"
 rm -rf "${BUILD_DIR}"
-python "${ROOT_DIR}/setup.py" build_ext --inplace --force \
+python "${ROOT_DIR}/setup.py" build_ext --inplace --force --parallel "$(nproc)" \
   --build-temp "${BUILD_DIR}/temp" --build-lib "${BUILD_DIR}/lib"
 
 # Ensure tests import from local src tree.
@@ -174,8 +142,9 @@ fi
 file "${ART}" || true
 
 if command -v readelf >/dev/null 2>&1; then
-  readelf -A "${ART}"
-  if ! readelf -A "${ART}" | grep -Eq 'Tag_CPU_arch: v6|Tag_CPU_arch: v6KZ'; then
+  READELF_OUT="$(readelf -A "${ART}")"
+  echo "${READELF_OUT}"
+  if ! echo "${READELF_OUT}" | grep -Eq 'Tag_CPU_arch: v6|Tag_CPU_arch: v6KZ'; then
     echo "ERROR: artifact CPU arch attribute is not ARMv6-compatible" >&2
     exit 7
   fi

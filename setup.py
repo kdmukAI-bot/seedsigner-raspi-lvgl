@@ -59,18 +59,10 @@ font_sources = [
     "opensans_regular_17_4bpp.c",
     "opensans_semibold_18_4bpp.c",
     "opensans_semibold_20_4bpp.c",
+    "opensans_semibold_26_4bpp.c",
     "seedsigner_icons_24_4bpp.c",
-    "opensans_regular_17_4bpp_125x.c",
-    "opensans_semibold_18_4bpp_125x.c",
-    "opensans_semibold_20_4bpp_125x.c",
-    "seedsigner_icons_24_4bpp_125x.c",
-    "opensans_regular_17_4bpp_150x.c",
-    "opensans_semibold_18_4bpp_150x.c",
-    "opensans_semibold_20_4bpp_150x.c",
-    "seedsigner_icons_24_4bpp_150x.c",
     "seedsigner_icons_36_4bpp.c",
-    "seedsigner_icons_36_4bpp_125x.c",
-    "seedsigner_icons_36_4bpp_150x.c",
+    "seedsigner_icons_48_4bpp.c",
 ]
 
 font_paths = [str(SEEDSIGNER_DIR / "fonts" / f) for f in font_sources]
@@ -118,6 +110,7 @@ ext_modules = [
         sources=[
             "native/python_bindings/module.cpp",
             str(SEEDSIGNER_DIR / "components.cpp"),
+            str(SEEDSIGNER_DIR / "gui_constants.cpp"),
             str(SEEDSIGNER_DIR / "input_profile.cpp"),
             str(SEEDSIGNER_DIR / "navigation.cpp"),
             str(SEEDSIGNER_DIR / "seedsigner.cpp"),
@@ -129,8 +122,9 @@ ext_modules = [
         define_macros=[
             ("LV_CONF_SKIP", "1"),
             ("LV_USE_DRAW_SW_ASM", "LV_DRAW_SW_ASM_NONE"),
+            ("SUPPORT_DISPLAY_HEIGHT_240", "1"),
             *(
-                [("LV_USE_PERF_MONITOR", "1")]
+                [("LV_USE_SYSMON", "1"), ("LV_USE_PERF_MONITOR", "1")]
                 if os.environ.get("LVGL_PERF_MONITOR", "0") == "1"
                 else []
             ),

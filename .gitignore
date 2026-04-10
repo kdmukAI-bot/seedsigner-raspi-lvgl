@@ -17,3 +17,4 @@ logs/
 *.core
 qemu_python*.core
 CLAUDE.md
+.claude/
