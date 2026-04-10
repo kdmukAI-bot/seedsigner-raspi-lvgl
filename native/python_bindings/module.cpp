@@ -42,8 +42,7 @@ static unsigned int s_tail = 0;
 static unsigned int s_count = 0;
 
 static bool s_lvgl_inited = false;
-static lv_disp_draw_buf_t s_draw_buf;
-static lv_color_t s_buf1[240 * 240];
+static uint8_t s_buf1[240 * 240 * 2];  // RGB565: 2 bytes/pixel, full-screen buffer
 static lv_indev_t *s_input_indev = NULL;
 static uint64_t s_last_tick_ms = 0;
 static uint32_t s_hor_res = 240;
@@ -347,8 +346,8 @@ static void native_input_init() {
     fprintf(stderr, "[seedsigner_lvgl_native] input init OK: 8 lines open (pull-up requested)\n");
 }
 
-static void native_input_read_cb(lv_indev_drv_t *drv, lv_indev_data_t *data) {
-    (void)drv;
+static void native_input_read_cb(lv_indev_t *indev, lv_indev_data_t *data) {
+    (void)indev;
     if (!s_input.ready) {
         data->state = LV_INDEV_STATE_REL;
         data->key = s_input.last_key;
@@ -511,25 +510,20 @@ static void native_display_test_pattern() {
     }
 }
 
-static void flush_cb(lv_disp_drv_t *disp_drv, const lv_area_t *area, lv_color_t *color_p) {
+static void flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map) {
     int w = area->x2 - area->x1 + 1;
     int h = area->y2 - area->y1 + 1;
-    size_t nbytes = static_cast<size_t>(w) * static_cast<size_t>(h) * static_cast<size_t>(sizeof(lv_color_t));
+    size_t nbytes = static_cast<size_t>(w) * static_cast<size_t>(h) * 2;  // RGB565: 2 bytes/pixel
 
     if (s_use_native_flush && s_native.ready) {
-        size_t expected = static_cast<size_t>(w) * static_cast<size_t>(h) * 2;
         if (s_native_debug_log && s_native_flush_log_count < s_native_flush_log_limit) {
-            fprintf(stderr, "[seedsigner_lvgl_native] flush #%u area=(%d,%d)-(%d,%d) w=%d h=%d nbytes=%zu expected=%zu\n",
-                    s_native_flush_log_count + 1, area->x1, area->y1, area->x2, area->y2, w, h, nbytes, expected);
+            fprintf(stderr, "[seedsigner_lvgl_native] flush #%u area=(%d,%d)-(%d,%d) w=%d h=%d nbytes=%zu\n",
+                    s_native_flush_log_count + 1, area->x1, area->y1, area->x2, area->y2, w, h, nbytes);
             s_native_flush_log_count++;
         }
 
-        if (nbytes != expected) {
-            fprintf(stderr, "[seedsigner_lvgl_native] WARN nbytes mismatch: got=%zu expected=%zu\n", nbytes, expected);
-        }
-
         try {
-            const uint8_t *src = reinterpret_cast<const uint8_t *>(color_p);
+            const uint8_t *src = px_map;
             std::vector<uint8_t> swapped;
             if (s_native_lvgl_swap_bytes) {
                 swapped.resize(nbytes);
@@ -546,7 +540,7 @@ static void flush_cb(lv_disp_drv_t *disp_drv, const lv_area_t *area, lv_color_t 
     } else if (s_flush_cb_py != NULL) {
         PyGILState_STATE gil = PyGILState_Ensure();
 
-        PyObject *payload = PyBytes_FromStringAndSize(reinterpret_cast<const char *>(color_p), static_cast<Py_ssize_t>(nbytes));
+        PyObject *payload = PyBytes_FromStringAndSize(reinterpret_cast<const char *>(px_map), static_cast<Py_ssize_t>(nbytes));
         if (payload != NULL) {
             PyObject *ret = PyObject_CallFunction(s_flush_cb_py, "iiiiO", area->x1, area->y1, area->x2, area->y2, payload);
             if (ret == NULL) {
@@ -562,7 +556,7 @@ static void flush_cb(lv_disp_drv_t *disp_drv, const lv_area_t *area, lv_color_t 
         PyGILState_Release(gil);
     }
 
-    lv_disp_flush_ready(disp_drv);
+    lv_display_flush_ready(disp);
 }
 
 static uint64_t now_ms() {
@@ -601,21 +595,15 @@ static void ensure_lvgl_runtime() {
 
     lv_init();
 
-    lv_disp_draw_buf_init(&s_draw_buf, s_buf1, NULL, (sizeof(s_buf1) / sizeof(s_buf1[0])));
+    lv_display_t *disp = lv_display_create(s_hor_res, s_ver_res);
+    lv_display_set_flush_cb(disp, flush_cb);
+    lv_display_set_color_format(disp, LV_COLOR_FORMAT_RGB565);
+    lv_display_set_buffers(disp, s_buf1, NULL, sizeof(s_buf1),
+                           LV_DISPLAY_RENDER_MODE_FULL);
 
-    static lv_disp_drv_t disp_drv;
-    lv_disp_drv_init(&disp_drv);
-    disp_drv.hor_res = s_hor_res;
-    disp_drv.ver_res = s_ver_res;
-    disp_drv.flush_cb = flush_cb;
-    disp_drv.draw_buf = &s_draw_buf;
-    lv_disp_drv_register(&disp_drv);
-
-    static lv_indev_drv_t indev_drv;
-    lv_indev_drv_init(&indev_drv);
-    indev_drv.type = LV_INDEV_TYPE_KEYPAD;
-    indev_drv.read_cb = native_input_read_cb;
-    s_input_indev = lv_indev_drv_register(&indev_drv);
+    s_input_indev = lv_indev_create();
+    lv_indev_set_type(s_input_indev, LV_INDEV_TYPE_KEYPAD);
+    lv_indev_set_read_cb(s_input_indev, native_input_read_cb);
 
     input_profile_set_mode(INPUT_MODE_HARDWARE);
 
