@@ -59,8 +59,10 @@ font_sources = [
     "opensans_regular_17_4bpp.c",
     "opensans_semibold_18_4bpp.c",
     "opensans_semibold_20_4bpp.c",
+    "opensans_semibold_26_4bpp.c",
     "seedsigner_icons_24_4bpp.c",
     "seedsigner_icons_36_4bpp.c",
+    "seedsigner_icons_48_4bpp.c",
 ]
 
 font_paths = [str(SEEDSIGNER_DIR / "fonts" / f) for f in font_sources]
