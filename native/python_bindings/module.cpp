@@ -3,6 +3,7 @@
 
 #include "lvgl.h"
 #include "seedsigner.h"
+#include "gui_constants.h"
 #include "input_profile.h"
 
 #include <chrono>
@@ -42,7 +43,8 @@ static unsigned int s_tail = 0;
 static unsigned int s_count = 0;
 
 static bool s_lvgl_inited = false;
-static uint8_t s_buf1[240 * 240 * 2];  // RGB565: 2 bytes/pixel, full-screen buffer
+static std::vector<uint8_t> s_buf1;  // RGB565: 2 bytes/pixel, sized at runtime
+static lv_display_t *s_disp = NULL;
 static lv_indev_t *s_input_indev = NULL;
 static uint64_t s_last_tick_ms = 0;
 static uint32_t s_hor_res = 240;
@@ -346,6 +348,24 @@ static void native_input_init() {
     fprintf(stderr, "[seedsigner_lvgl_native] input init OK: 8 lines open (pull-up requested)\n");
 }
 
+// Open gpiochip and initialize only input lines (no display GPIO).
+// For use when display is owned by an external driver (e.g. SeedSigner's Python ST7789).
+static void native_input_only_init() {
+    if (s_input.ready) {
+        return;  // already initialized
+    }
+    if (s_native.gpio_chip_fd < 0) {
+        s_native.gpio_chip_fd = open("/dev/gpiochip0", O_RDWR | O_CLOEXEC);
+        if (s_native.gpio_chip_fd < 0) {
+            throw std::runtime_error("open /dev/gpiochip0 failed errno=" + std::to_string(errno));
+        }
+        // Mark gpiochip as ready so native_input_init can use it,
+        // but display lines are NOT claimed.
+        s_native.gpiochip_ready = true;
+    }
+    native_input_init();
+}
+
 static void native_input_read_cb(lv_indev_t *indev, lv_indev_data_t *data) {
     (void)indev;
     if (!s_input.ready) {
@@ -455,15 +475,60 @@ static void native_hw_reset() {
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
 }
 
+static uint8_t native_madctl_for_resolution() {
+    // MADCTL register controls memory access direction (rotation).
+    // 240x240: 0x70 (MX+MV+ML) — proven on Waveshare 1.3" hat
+    // 320x240: 0x60 (MX+MV) — landscape rotation (from st7789_mpy rotation 1)
+    uint8_t madctl = (s_native.width == 320 && s_native.height == 240) ? 0x60 : 0x70;
+    if (s_native.bgr) {
+        madctl |= 0x08;  // BGR bit
+    }
+    return madctl;
+}
+
 static void native_display_init_sequence() {
-    native_cmd(0x36);
-    native_data_byte(s_native.bgr ? 0x78 : 0x70);
-    native_cmd(0x3A);
-    native_data_byte(0x05);
-    native_cmd(0x21);
-    native_cmd(0x11);
+    // Full ST7789 initialization sequence (matches SeedSigner st7789_mpy.py).
+    native_cmd(0x11);                                           // SLPOUT: exit sleep
     std::this_thread::sleep_for(std::chrono::milliseconds(120));
-    native_cmd(0x29);
+    native_cmd(0x13);                                           // NORON: normal display mode
+    native_cmd(0xB6);                                           // Display function control
+    uint8_t b6[] = {0x0A, 0x82};
+    native_data_buf(b6, sizeof(b6));
+    native_cmd(0x3A);                                           // COLMOD: 16-bit RGB565
+    native_data_byte(0x55);
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    native_cmd(0xB2);                                           // Porch control
+    uint8_t b2[] = {0x0C, 0x0C, 0x00, 0x33, 0x33};
+    native_data_buf(b2, sizeof(b2));
+    native_cmd(0xB7);                                           // Gate control
+    native_data_byte(0x35);
+    native_cmd(0xBB);                                           // VCOMS setting
+    native_data_byte(0x28);
+    native_cmd(0xC0);                                           // Power control 1
+    native_data_byte(0x0C);
+    native_cmd(0xC2);                                           // Power control 2
+    uint8_t c2[] = {0x01, 0xFF};
+    native_data_buf(c2, sizeof(c2));
+    native_cmd(0xC3);                                           // Power control 3
+    native_data_byte(0x10);
+    native_cmd(0xC4);                                           // Power control 4
+    native_data_byte(0x20);
+    native_cmd(0xC6);                                           // VCOM control 1
+    native_data_byte(0x0F);
+    native_cmd(0xD0);                                           // Power control A
+    uint8_t d0[] = {0xA4, 0xA1};
+    native_data_buf(d0, sizeof(d0));
+    native_cmd(0xE0);                                           // Gamma positive
+    uint8_t e0[] = {0xD0, 0x00, 0x02, 0x07, 0x0A, 0x28, 0x32, 0x44, 0x42, 0x06, 0x0E, 0x12, 0x14, 0x17};
+    native_data_buf(e0, sizeof(e0));
+    native_cmd(0xE1);                                           // Gamma negative
+    uint8_t e1[] = {0xD0, 0x00, 0x02, 0x07, 0x0A, 0x28, 0x31, 0x54, 0x47, 0x0E, 0x1C, 0x17, 0x1B, 0x1E};
+    native_data_buf(e1, sizeof(e1));
+    native_cmd(0x21);                                           // INVON: display inversion
+    native_cmd(0x36);                                           // MADCTL: rotation/color order
+    native_data_byte(native_madctl_for_resolution());
+    native_cmd(0x29);                                           // DISPON: display on
+    std::this_thread::sleep_for(std::chrono::milliseconds(120));
 }
 
 static void native_display_blit(int x1, int y1, int x2, int y2, const uint8_t *buf, size_t len) {
@@ -544,13 +609,19 @@ static void flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map)
         if (payload != NULL) {
             PyObject *ret = PyObject_CallFunction(s_flush_cb_py, "iiiiO", area->x1, area->y1, area->x2, area->y2, payload);
             if (ret == NULL) {
-                PyErr_Print();
+                // Preserve KeyboardInterrupt so the pump loop can exit.
+                // Only print/clear non-interrupt exceptions.
+                if (!PyErr_ExceptionMatches(PyExc_KeyboardInterrupt)) {
+                    PyErr_Print();
+                }
             } else {
                 Py_DECREF(ret);
             }
             Py_DECREF(payload);
         } else {
-            PyErr_Print();
+            if (!PyErr_ExceptionMatches(PyExc_KeyboardInterrupt)) {
+                PyErr_Print();
+            }
         }
 
         PyGILState_Release(gil);
@@ -593,12 +664,15 @@ static void ensure_lvgl_runtime() {
         return;
     }
 
+    set_display(s_hor_res, s_ver_res);
     lv_init();
 
-    lv_display_t *disp = lv_display_create(s_hor_res, s_ver_res);
-    lv_display_set_flush_cb(disp, flush_cb);
-    lv_display_set_color_format(disp, LV_COLOR_FORMAT_RGB565);
-    lv_display_set_buffers(disp, s_buf1, NULL, sizeof(s_buf1),
+    s_buf1.assign(static_cast<size_t>(s_hor_res) * s_ver_res * 2, 0);
+
+    s_disp = lv_display_create(s_hor_res, s_ver_res);
+    lv_display_set_flush_cb(s_disp, flush_cb);
+    lv_display_set_color_format(s_disp, LV_COLOR_FORMAT_RGB565);
+    lv_display_set_buffers(s_disp, s_buf1.data(), NULL, s_buf1.size(),
                            LV_DISPLAY_RENDER_MODE_FULL);
 
     s_input_indev = lv_indev_create();
@@ -628,6 +702,8 @@ static void lvgl_runtime_shutdown() {
 #if defined(LVGL_VERSION_MAJOR) && (LVGL_VERSION_MAJOR >= 8)
     lv_deinit();
 #endif
+    s_disp = NULL;
+    s_buf1.clear();
     s_last_tick_ms = 0;
     s_lvgl_inited = false;
 }
@@ -758,15 +834,22 @@ static std::string py_cfg_to_json(PyObject *cfg) {
     return out;
 }
 
-static void lvgl_runtime_pump(unsigned int duration_ms, unsigned int sleep_ms) {
+// Returns 0 normally, -1 if a Python signal is pending.
+static int lvgl_runtime_pump(unsigned int duration_ms, unsigned int sleep_ms) {
     if (!s_lvgl_inited) {
-        return;
+        return 0;
     }
 
     auto start = std::chrono::steady_clock::now();
     while (true) {
         lvgl_tick_update();
         lv_timer_handler();
+
+        // Check for exceptions raised inside flush callbacks (e.g.
+        // KeyboardInterrupt) or new pending signals (Ctrl+C).
+        if (PyErr_Occurred() || PyErr_CheckSignals() != 0) {
+            return -1;
+        }
 
         auto now = std::chrono::steady_clock::now();
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - start).count();
@@ -775,12 +858,16 @@ static void lvgl_runtime_pump(unsigned int duration_ms, unsigned int sleep_ms) {
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(sleep_ms));
     }
+    return 0;
 }
 
-static void run_lvgl_until_result_or_timeout(unsigned int timeout_ms) {
+// Returns 0 on result, -1 on Python signal (e.g. KeyboardInterrupt).
+static int run_lvgl_until_result_or_timeout(unsigned int timeout_ms) {
     auto start = std::chrono::steady_clock::now();
     while (s_count == 0) {
-        lvgl_runtime_pump(5, 1);
+        if (lvgl_runtime_pump(5, 1) < 0) {
+            return -1;
+        }
 
         if (timeout_ms == 0) {
             continue;  // no timeout — run until a result arrives
@@ -791,6 +878,7 @@ static void run_lvgl_until_result_or_timeout(unsigned int timeout_ms) {
             break;
         }
     }
+    return 0;
 }
 
 static PyObject *py_clear_result_queue(PyObject *self, PyObject *args) {
@@ -833,6 +921,64 @@ static PyObject *py_lvgl_shutdown(PyObject *self, PyObject *args) {
     Py_RETURN_NONE;
 }
 
+static PyObject *py_set_resolution(PyObject *self, PyObject *args, PyObject *kwargs) {
+    (void)self;
+    static const char *kwlist[] = {"width", "height", NULL};
+    unsigned int width = 0;
+    unsigned int height = 0;
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "II", const_cast<char **>(kwlist), &width, &height)) {
+        return NULL;
+    }
+
+    if (!s_lvgl_inited) {
+        PyErr_SetString(PyExc_RuntimeError, "LVGL runtime not initialized: call lvgl_init() first");
+        return NULL;
+    }
+
+    if (width == s_hor_res && height == s_ver_res) {
+        Py_RETURN_NONE;  // already at requested resolution
+    }
+
+    // Update the active display profile (aborts if no profile matches).
+    set_display(width, height);
+
+    s_hor_res = width;
+    s_ver_res = height;
+
+    // Delete the current LVGL display (also deletes all screens).
+    if (s_disp) {
+        lv_display_delete(s_disp);
+        s_disp = NULL;
+    }
+
+    // Resize the draw buffer for the new resolution.
+    s_buf1.assign(static_cast<size_t>(width) * height * 2, 0);
+
+    // Create a new LVGL display at the new resolution.
+    s_disp = lv_display_create(width, height);
+    lv_display_set_flush_cb(s_disp, flush_cb);
+    lv_display_set_color_format(s_disp, LV_COLOR_FORMAT_RGB565);
+    lv_display_set_buffers(s_disp, s_buf1.data(), NULL, s_buf1.size(),
+                           LV_DISPLAY_RENDER_MODE_FULL);
+
+    // lv_display_delete sets all associated indevs' display to NULL, which
+    // silently disables them.  Reassign every indev to the new display.
+    lv_indev_t *indev = NULL;
+    while ((indev = lv_indev_get_next(indev)) != NULL) {
+        lv_indev_set_display(indev, s_disp);
+    }
+
+    // If native display is active, send the new MADCTL for the target rotation.
+    if (s_use_native_flush && s_native.ready) {
+        s_native.width = width;
+        s_native.height = height;
+        native_cmd(0x36);
+        native_data_byte(native_madctl_for_resolution());
+    }
+
+    Py_RETURN_NONE;
+}
+
 static PyObject *py_lvgl_pump(PyObject *self, PyObject *args, PyObject *kwargs) {
     (void)self;
     static const char *kwlist[] = {"duration_ms", "sleep_ms", NULL};
@@ -843,7 +989,9 @@ static PyObject *py_lvgl_pump(PyObject *self, PyObject *args, PyObject *kwargs) 
     }
 
     require_lvgl_runtime();
-    lvgl_runtime_pump(duration_ms, sleep_ms);
+    if (lvgl_runtime_pump(duration_ms, sleep_ms) < 0) {
+        return NULL;
+    }
     Py_RETURN_NONE;
 }
 
@@ -989,6 +1137,18 @@ static PyObject *py_native_display_shutdown(PyObject *self, PyObject *args) {
     Py_RETURN_NONE;
 }
 
+static PyObject *py_native_input_init(PyObject *self, PyObject *args) {
+    (void)self;
+    (void)args;
+    try {
+        native_input_only_init();
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+    Py_RETURN_NONE;
+}
+
 static PyObject *py_set_flush_mode(PyObject *self, PyObject *args) {
     (void)self;
     const char *mode = NULL;
@@ -1116,7 +1276,9 @@ static PyObject *py_button_list_screen(PyObject *self, PyObject *args) {
         // indev/group ownership. Do not attach a parallel binding-layer group here.
         s_last_path = "compiled";
 
-        run_lvgl_until_result_or_timeout(wait_timeout_ms);
+        if (run_lvgl_until_result_or_timeout(wait_timeout_ms) < 0) {
+            return NULL;  // Python signal pending (e.g. KeyboardInterrupt)
+        }
 
         if (s_count == 0 && allow_timeout_fallback) {
             char label_buf[RESULT_LABEL_MAX];
@@ -1147,7 +1309,9 @@ static PyObject *py_main_menu_screen(PyObject *self, PyObject *args, PyObject *k
         main_menu_screen(NULL);
         s_last_path = "compiled";
 
-        run_lvgl_until_result_or_timeout(wait_timeout_ms);
+        if (run_lvgl_until_result_or_timeout(wait_timeout_ms) < 0) {
+            return NULL;  // Python signal pending (e.g. KeyboardInterrupt)
+        }
 
         if (s_count == 0 && allow_timeout_fallback) {
             queue_push(RESULT_BUTTON_SELECTED, 0, "Scan");
@@ -1176,12 +1340,83 @@ static PyObject *py_screensaver_screen(PyObject *self, PyObject *args, PyObject 
         screensaver_screen(NULL);
         s_last_path = "compiled";
 
-        run_lvgl_until_result_or_timeout(wait_timeout_ms);
+        if (run_lvgl_until_result_or_timeout(wait_timeout_ms) < 0) {
+            return NULL;  // Python signal pending (e.g. KeyboardInterrupt)
+        }
     } catch (const std::exception &e) {
         PyErr_SetString(PyExc_RuntimeError, e.what());
         return NULL;
     }
 
+    Py_RETURN_NONE;
+}
+
+// --- Screen save / restore ------------------------------------------------
+// General-purpose mechanism for preserving the active LVGL screen across
+// an overlay (e.g. screensaver, modal dialog). The Python side decides
+// when to save and restore; the C side just holds the pointer.
+
+static lv_obj_t  *s_saved_screen = NULL;
+static lv_group_t *s_saved_group = NULL;
+
+static PyObject *py_save_screen(PyObject *self, PyObject *args) {
+    (void)self; (void)args;
+    try {
+        require_lvgl_runtime();
+        s_saved_screen = lv_scr_act();
+
+        // Save the current indev group.
+        s_saved_group = NULL;
+        lv_indev_t *indev = NULL;
+        while ((indev = lv_indev_get_next(indev)) != NULL) {
+            if (lv_indev_get_type(indev) == LV_INDEV_TYPE_KEYPAD ||
+                lv_indev_get_type(indev) == LV_INDEV_TYPE_ENCODER) {
+                s_saved_group = lv_indev_get_group(indev);
+                break;
+            }
+        }
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+    Py_RETURN_NONE;
+}
+
+static PyObject *py_restore_screen(PyObject *self, PyObject *args) {
+    (void)self; (void)args;
+    try {
+        require_lvgl_runtime();
+        if (!s_saved_screen) {
+            Py_RETURN_NONE;  // nothing saved — no-op
+        }
+
+        lv_obj_t *cur_scr = lv_scr_act();
+
+        // Restore the saved indev group BEFORE deleting the overlay screen,
+        // since deletion frees the overlay's group.
+        if (s_saved_group) {
+            lv_indev_t *indev = NULL;
+            while ((indev = lv_indev_get_next(indev)) != NULL) {
+                if (lv_indev_get_type(indev) == LV_INDEV_TYPE_KEYPAD ||
+                    lv_indev_get_type(indev) == LV_INDEV_TYPE_ENCODER) {
+                    lv_indev_set_group(indev, s_saved_group);
+                }
+            }
+        }
+
+        if (cur_scr != s_saved_screen) {
+            lv_scr_load(s_saved_screen);
+            // Synchronously delete the overlay screen now that the saved
+            // screen is active and the indev group is restored.
+            lv_obj_delete(cur_scr);
+        }
+
+        s_saved_screen = NULL;
+        s_saved_group = NULL;
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
     Py_RETURN_NONE;
 }
 
@@ -1205,8 +1440,12 @@ static PyObject *py_clear_screen(PyObject *self, PyObject *args) {
 static PyMethodDef methods[] = {
     {"lvgl_init", (PyCFunction)py_lvgl_init, METH_VARARGS | METH_KEYWORDS, "Initialize LVGL runtime."},
     {"lvgl_shutdown", py_lvgl_shutdown, METH_NOARGS, "Shutdown LVGL runtime."},
+    {"set_resolution", (PyCFunction)py_set_resolution, METH_VARARGS | METH_KEYWORDS, "Switch LVGL display resolution (e.g. 240x240 to 320x240)."},
     {"lvgl_pump", (PyCFunction)py_lvgl_pump, METH_VARARGS | METH_KEYWORDS, "Pump LVGL timers/input for duration_ms."},
     {"native_display_init", (PyCFunction)py_native_display_init, METH_VARARGS | METH_KEYWORDS, "Init native ST7789 backend."},
+    {"native_input_init", py_native_input_init, METH_NOARGS, "Init GPIO input only (no display)."},
+    {"save_screen", py_save_screen, METH_NOARGS, "Save active LVGL screen for later restore."},
+    {"restore_screen", py_restore_screen, METH_NOARGS, "Restore previously saved LVGL screen."},
     {"clear_screen", py_clear_screen, METH_NOARGS, "Clear display to black."},
     {"native_display_shutdown", py_native_display_shutdown, METH_NOARGS, "Shutdown native ST7789 backend."},
     {"native_display_test_pattern", py_native_display_test_pattern, METH_NOARGS, "Render native RGB565 test bands."},

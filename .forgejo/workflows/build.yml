@@ -1,0 +1,80 @@
+name: build
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.forgejo/workflows/build.yml'
+      - 'run_build.sh'
+      - 'docker/build_steps.sh'
+      - 'setup.py'
+      - 'versions.lock.toml'
+  pull_request:
+    paths:
+      - '.forgejo/workflows/build.yml'
+      - 'run_build.sh'
+      - 'docker/build_steps.sh'
+      - 'setup.py'
+      - 'versions.lock.toml'
+
+jobs:
+  build-armv6:
+    runs-on: native
+    env:
+      PY_SERIES: py310-dev
+      IMAGE_TAG: registry.gitlab.com/kdmukai-bot/seedsigner-raspi-lvgl/python-armv6:py310-dev
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up QEMU binfmt
+        run: docker run --privileged --rm tonistiigi/binfmt --install arm >/dev/null
+
+      - name: Preflight dependency check
+        run: |
+          test -f sources/seedsigner-c-modules/components/seedsigner/seedsigner.cpp
+          test -f sources/seedsigner-c-modules/third_party/lvgl/lvgl.h
+
+      - name: Pull base image
+        run: docker pull --platform linux/arm/v6 "${IMAGE_TAG}"
+
+      - name: Build ARMv6 extension
+        run: |
+          set -euo pipefail
+
+          WS_ROOT="${GITHUB_WORKSPACE}"
+          CONTAINER_REPO_DIR="/workspace"
+
+          mkdir -p logs
+
+          docker run --rm --platform linux/arm/v6 \
+            -v "${WS_ROOT}:${CONTAINER_REPO_DIR}" \
+            -w "${CONTAINER_REPO_DIR}" \
+            -e RUN_TS="$(date -u +%Y%m%d-%H%M%S)" \
+            -e ABI_JSON="${CONTAINER_REPO_DIR}/docs/abi/dev-pi-abi.json" \
+            -e LOCK_FILE="${CONTAINER_REPO_DIR}/versions.lock.toml" \
+            -e SEEDSIGNER_C_MODULES_DIR="${CONTAINER_REPO_DIR}/sources/seedsigner-c-modules" \
+            -e LVGL_ROOT="${CONTAINER_REPO_DIR}/sources/seedsigner-c-modules/third_party/lvgl" \
+            -e LVGL_PERF_MONITOR=0 \
+            "${IMAGE_TAG}" \
+            bash ./docker/build_steps.sh
+
+      - name: Verify artifact
+        run: ls -la src/seedsigner_lvgl_native*.so
+
+      # Forgejo artifact upload is best-effort; not all instances support it.
+      - name: Upload extension artifact
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: build-${{ env.PY_SERIES }}
+          path: src/seedsigner_lvgl_native*.so
+
+      - name: Upload build logs
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: build-logs
+          path: logs/

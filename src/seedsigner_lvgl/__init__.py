@@ -24,6 +24,13 @@ def lvgl_shutdown():
     return _native.lvgl_shutdown()
 
 
+def set_resolution(width, height):
+    """Switch LVGL display resolution (e.g. 240x240 to 320x240)."""
+    if _native is None:
+        raise NotImplementedError("Native binding not available.")
+    return _native.set_resolution(width=width, height=height)
+
+
 def set_flush_callback(cb=None):
     if _native is None:
         if cb is None:
@@ -62,6 +69,28 @@ def clear_screen():
     if _native is None:
         raise NotImplementedError("Native binding not available.")
     return _native.clear_screen()
+
+
+def native_input_init():
+    """Initialize GPIO input only (no display). For use when display is
+    owned by an external driver."""
+    if _native is None:
+        raise NotImplementedError("Native binding not available.")
+    return _native.native_input_init()
+
+
+def save_screen():
+    """Save the active LVGL screen and indev group for later restore."""
+    if _native is None:
+        raise NotImplementedError("Native binding not available.")
+    return _native.save_screen()
+
+
+def restore_screen():
+    """Restore previously saved LVGL screen and indev group."""
+    if _native is None:
+        raise NotImplementedError("Native binding not available.")
+    return _native.restore_screen()
 
 
 def native_display_shutdown():
@@ -142,9 +171,13 @@ def poll_for_result():
 __all__ = [
     "lvgl_init",
     "lvgl_shutdown",
+    "set_resolution",
     "set_flush_callback",
     "clear_screen",
     "native_display_init",
+    "native_input_init",
+    "save_screen",
+    "restore_screen",
     "native_display_shutdown",
     "native_display_test_pattern",
     "native_debug_config",

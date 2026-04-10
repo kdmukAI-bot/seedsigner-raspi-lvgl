@@ -1,0 +1,77 @@
+stages:
+  - build
+
+build-armv6:
+  stage: build
+  image: docker:27
+  services:
+    - docker:27-dind
+  variables:
+    DOCKER_TLS_CERTDIR: ""
+    DOCKER_HOST: tcp://docker:2375
+    GIT_SUBMODULE_STRATEGY: recursive
+    # Build configuration
+    BUILD_PROFILE: dev
+    PY_SERIES: py310-dev
+    IMAGE_TAG: registry.gitlab.com/kdmukai-bot/seedsigner-raspi-lvgl/python-armv6:py310-dev
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes:
+        - .gitlab-ci.yml
+        - run_build.sh
+        - docker/build_steps.sh
+        - setup.py
+        - versions.lock.toml
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_PIPELINE_SOURCE == "web"
+  before_script:
+    # Register QEMU binfmt for ARM emulation on x86 runners.
+    - docker run --privileged --rm tonistiigi/binfmt --install arm >/dev/null
+  script:
+    - |
+      set -euo pipefail
+
+      # Preflight: verify submodule sources are present.
+      test -f sources/seedsigner-c-modules/components/seedsigner/seedsigner.cpp
+      test -f sources/seedsigner-c-modules/third_party/lvgl/lvgl.h
+
+      docker pull --platform linux/arm/v6 "${IMAGE_TAG}"
+
+      # GitLab DinD: the Docker daemon runs in a separate container, so volume
+      # mounts from the job container are not visible.  Use docker cp instead.
+      CONTAINER_REPO_DIR="/workspace"
+      BUILD_CONTAINER="armv6-build-$$"
+
+      mkdir -p logs
+
+      docker create --name "${BUILD_CONTAINER}" \
+        --platform linux/arm/v6 \
+        -w "${CONTAINER_REPO_DIR}" \
+        -e RUN_TS="$(date -u +%Y%m%d-%H%M%S)" \
+        -e ABI_JSON="${CONTAINER_REPO_DIR}/docs/abi/dev-pi-abi.json" \
+        -e LOCK_FILE="${CONTAINER_REPO_DIR}/versions.lock.toml" \
+        -e SEEDSIGNER_C_MODULES_DIR="${CONTAINER_REPO_DIR}/sources/seedsigner-c-modules" \
+        -e LVGL_ROOT="${CONTAINER_REPO_DIR}/sources/seedsigner-c-modules/third_party/lvgl" \
+        -e LVGL_PERF_MONITOR=0 \
+        "${IMAGE_TAG}" \
+        bash ./docker/build_steps.sh
+
+      # Copy workspace into the build container.
+      docker cp . "${BUILD_CONTAINER}:${CONTAINER_REPO_DIR}"
+
+      # Run the build.
+      docker start -a "${BUILD_CONTAINER}"
+
+      # Copy artifacts back out.
+      docker cp "${BUILD_CONTAINER}:${CONTAINER_REPO_DIR}/src/." ./src/
+      docker cp "${BUILD_CONTAINER}:${CONTAINER_REPO_DIR}/logs/." ./logs/ || true
+
+      docker rm "${BUILD_CONTAINER}" || true
+
+      # Verify artifact exists.
+      ls -la src/seedsigner_lvgl_native*.so
+  artifacts:
+    paths:
+      - src/seedsigner_lvgl_native*.so
+      - logs/
+    expire_in: 30 days
