@@ -138,6 +138,21 @@ def button_list_screen(cfg_dict):
     return _native.button_list_screen(cfg_dict)
 
 
+def seed_add_passphrase_screen(cfg_dict=None):
+    """Render the BIP39 passphrase entry screen.
+
+    cfg_dict (optional) accepts: top_nav (title/show_back_button), initial_text,
+    max_length, and an input-mode override. Poll for results afterward: a
+    ("text_entered", -1, passphrase) tuple on confirm, or ("topnav_back", -1, ...)
+    if the user backs out.
+    """
+    if _native is None:
+        raise NotImplementedError("Native binding not available.")
+    if cfg_dict is None:
+        return _native.seed_add_passphrase_screen()
+    return _native.seed_add_passphrase_screen(cfg_dict)
+
+
 def main_menu_screen(wait_timeout_ms=0, allow_timeout_fallback=False):
     if _native is None:
         raise NotImplementedError("Native binding not available.")
@@ -185,6 +200,7 @@ __all__ = [
     "bind_display",
     "lvgl_pump",
     "button_list_screen",
+    "seed_add_passphrase_screen",
     "main_menu_screen",
     "screensaver_screen",
     "clear_result_queue",

@@ -23,12 +23,15 @@
 #include <unistd.h>
 
 #define RESULT_QUEUE_CAP 64
-#define RESULT_LABEL_MAX 128
+// 256 bytes accommodates a full BIP39 passphrase (text_entered results carry
+// the entered string in the label field), not just short button labels.
+#define RESULT_LABEL_MAX 256
 
 enum result_kind_t {
     RESULT_BUTTON_SELECTED = 0,
     RESULT_TOPNAV_BACK = 1,
     RESULT_TOPNAV_POWER = 2,
+    RESULT_TEXT_ENTERED = 3,
 };
 
 typedef struct {
@@ -163,6 +166,8 @@ static const char *kind_to_event_name(result_kind_t kind) {
             return "topnav_back";
         case RESULT_TOPNAV_POWER:
             return "topnav_power";
+        case RESULT_TEXT_ENTERED:
+            return "text_entered";
         case RESULT_BUTTON_SELECTED:
         default:
             return "button_selected";
@@ -172,20 +177,34 @@ static const char *kind_to_event_name(result_kind_t kind) {
 extern "C" void seedsigner_lvgl_on_button_selected(uint32_t index, const char *label) {
     const char *safe_label = label ? label : "";
 
-    if (index == 0xFFFFFFFFu) {
-        if (std::strcmp(safe_label, "topnav_back") == 0) {
+    // Reserved result codes (SEEDSIGNER_RET_* in seedsigner.h) arrive in the
+    // index slot; `label` is informational only. Check the reserved codes first,
+    // then treat index as a 0-based body-button position — the same order
+    // SeedSigner's Python Views use.
+    switch (index) {
+        case SEEDSIGNER_RET_BACK_BUTTON:
             queue_push(RESULT_TOPNAV_BACK, -1, safe_label);
             return;
-        }
-        if (std::strcmp(safe_label, "topnav_power") == 0) {
+        case SEEDSIGNER_RET_POWER_BUTTON:
             queue_push(RESULT_TOPNAV_POWER, -1, safe_label);
             return;
-        }
-        queue_push(RESULT_BUTTON_SELECTED, -1, safe_label);
-        return;
+        case SEEDSIGNER_RET_SCREENSAVER_DISMISS:
+            // No dedicated result kind; preserve the prior behavior of surfacing
+            // dismiss as a button_selected with no index (label carries detail).
+            queue_push(RESULT_BUTTON_SELECTED, -1, safe_label);
+            return;
+        default:
+            queue_push(RESULT_BUTTON_SELECTED, static_cast<int>(index), safe_label);
+            return;
     }
+}
 
-    queue_push(RESULT_BUTTON_SELECTED, static_cast<int>(index), safe_label);
+// Text-entry confirm callback (e.g. seed_add_passphrase_screen). Overrides the
+// weak default in seedsigner.cpp. The entered text is delivered as the result
+// label; index is -1 (no list position). Long values are truncated to
+// RESULT_LABEL_MAX by queue_push().
+extern "C" void seedsigner_lvgl_on_text_entered(const char *text) {
+    queue_push(RESULT_TEXT_ENTERED, -1, text ? text : "");
 }
 
 static void write_text_file(const std::string &path, const std::string &value) {
@@ -1294,6 +1313,48 @@ static PyObject *py_button_list_screen(PyObject *self, PyObject *args) {
     Py_RETURN_NONE;
 }
 
+static PyObject *py_seed_add_passphrase_screen(PyObject *self, PyObject *args) {
+    (void)self;
+
+    PyObject *cfg = NULL;
+    if (!PyArg_ParseTuple(args, "|O", &cfg)) {
+        return NULL;
+    }
+
+    if (cfg && cfg != Py_None && !PyDict_Check(cfg)) {
+        PyErr_SetString(PyExc_RuntimeError,
+                        "seed_add_passphrase_screen expects cfg_dict as dict");
+        return NULL;
+    }
+
+    try {
+        require_lvgl_runtime();
+
+        const unsigned int wait_timeout_ms =
+            (cfg && cfg != Py_None) ? cfg_wait_timeout_ms(cfg, 0) : 0;
+
+        // The screen accepts an optional JSON ctx (top_nav, initial_text,
+        // max_length, input mode override). With no cfg, pass NULL and let the
+        // C side apply its defaults ("Enter Passphrase").
+        if (cfg && cfg != Py_None) {
+            std::string cfg_json = py_cfg_to_json(cfg);
+            seed_add_passphrase_screen((void *)cfg_json.c_str());
+        } else {
+            seed_add_passphrase_screen(NULL);
+        }
+        s_last_path = "compiled";
+
+        if (run_lvgl_until_result_or_timeout(wait_timeout_ms) < 0) {
+            return NULL;  // Python signal pending (e.g. KeyboardInterrupt)
+        }
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+
+    Py_RETURN_NONE;
+}
+
 static PyObject *py_main_menu_screen(PyObject *self, PyObject *args, PyObject *kwargs) {
     (void)self;
     static const char *kwlist[] = {"wait_timeout_ms", "allow_timeout_fallback", NULL};
@@ -1454,6 +1515,7 @@ static PyMethodDef methods[] = {
     {"set_flush_callback", py_set_flush_callback, METH_VARARGS, "Set display flush callback(area, bytes)."},
     {"button_list_screen", py_button_list_screen, METH_VARARGS, "Render button list screen with runtime loop."},
     {"main_menu_screen", (PyCFunction)py_main_menu_screen, METH_VARARGS | METH_KEYWORDS, "Render main menu screen (2x2 grid)."},
+    {"seed_add_passphrase_screen", py_seed_add_passphrase_screen, METH_VARARGS, "Render BIP39 passphrase entry screen; result is text_entered or topnav_back."},
     {"screensaver_screen", (PyCFunction)py_screensaver_screen, METH_VARARGS | METH_KEYWORDS, "Render screensaver (bouncing logo)."},
     {"clear_result_queue", py_clear_result_queue, METH_NOARGS, "Clear result queue."},
     {"poll_for_result", py_poll_for_result, METH_NOARGS, "Poll next result tuple or None."},
