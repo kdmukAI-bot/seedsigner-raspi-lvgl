@@ -63,6 +63,7 @@ font_sources = [
     "seedsigner_icons_24_4bpp.c",
     "seedsigner_icons_36_4bpp.c",
     "seedsigner_icons_48_4bpp.c",
+    "inconsolata_semibold_24_4bpp.c",  # fixed-width keyboard/text-entry font (240px profile)
 ]
 
 font_paths = [str(SEEDSIGNER_DIR / "fonts" / f) for f in font_sources]

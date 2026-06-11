@@ -87,7 +87,13 @@ jobs:
             exit 5
           fi
 
-          IMAGE_TAG="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/seedsigner-raspi-lvgl/python-armv6:${PY_SERIES}"
+          # Standardize on the bot-hosted base image: it is published (and made
+          # public) under kdmukai-bot, which has the GHCR package-create perms the
+          # kdmukai personal account lacks. Pinning the owner here means every
+          # context — upstream pushes, bot-fork pushes, and fork PRs into kdmukai —
+          # pulls the one public image instead of an owner-relative tag that only
+          # exists under one account.
+          IMAGE_TAG="ghcr.io/kdmukai-bot/seedsigner-raspi-lvgl/python-armv6:${PY_SERIES}"
 
           {
             echo "build_profile=${BUILD_PROFILE}"
