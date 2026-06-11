@@ -50,17 +50,3 @@ RUN ./configure \
     && make install
 
 WORKDIR /workspace
-
-# Emit runtime ABI facts at image build time for traceability
-RUN python3 - <<'PY'
-import json,platform,sysconfig
-print(json.dumps({
-  'python_version': platform.python_version(),
-  'machine': platform.machine(),
-  'soabi': sysconfig.get_config_var('SOABI'),
-  'ext_suffix': sysconfig.get_config_var('EXT_SUFFIX'),
-  'include_py': sysconfig.get_config_var('INCLUDEPY'),
-  'libdir': sysconfig.get_config_var('LIBDIR'),
-  'ldlibrary': sysconfig.get_config_var('LDLIBRARY'),
-}, indent=2))
-PY
