@@ -7,7 +7,7 @@ PYTHON_VERSION="${PYTHON_VERSION:-3.10.10}"
 PY_SERIES="${PY_SERIES:-py310-dev}"
 GCC_MAJOR="${GCC_MAJOR:-8}"
 IMAGE_TAG_LOCAL="${IMAGE_TAG_LOCAL:-seedsigner-raspi-lvgl/python-armv6:${PY_SERIES}-local}"
-DOCKERFILE="${ROOT_DIR}/docker/Dockerfile.ghcr"
+DOCKERFILE="${ROOT_DIR}/docker/Dockerfile"
 
 RUN_TS="${RUN_TS:-$(date -u +%Y%m%d-%H%M%S)}"
 LOG_DIR="${ROOT_DIR}/logs"
