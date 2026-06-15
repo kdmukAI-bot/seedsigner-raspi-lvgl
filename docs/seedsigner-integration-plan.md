@@ -201,7 +201,7 @@ def display(self) -> int:
 - Clean separation: LVGL is a pure rendering/UI engine, SeedSigner owns all I/O
 
 ### Changes needed (seedsigner-raspi-lvgl repo)
-- `sources/seedsigner-c-modules/components/seedsigner/input_profile.h`: add INPUT_MODE_PYTHON
+- `sources/seedsigner-lvgl-screens/components/seedsigner/input_profile.h`: add INPUT_MODE_PYTHON
 - `native/python_bindings/module.cpp`: add inject_key() + set_input_mode() functions,
   modify native_input_read_cb() to support python mode
 - `src/seedsigner_lvgl/__init__.py`: expose new functions in facade
@@ -234,7 +234,7 @@ feature flag, renderer ownership tracking. No user-visible change; LVGL disabled
 MainMenuScreen + ScreensaverScreen adapters (already have LVGL implementations).
 Ship as opt-in (`RENDERING_ENGINE=lvgl`) behind the feature flag.
 
-**Phase 3: Expand coverage** — As new LVGL screen types are added to seedsigner-c-modules,
+**Phase 3: Expand coverage** — As new LVGL screen types are added to seedsigner-lvgl-screens,
 add corresponding adapters. Each release migrates a batch of screens. The dispatch map
 grows; PIL screens that haven't been migrated yet continue to work unchanged.
 
@@ -281,7 +281,7 @@ C widgets → LVGL renderer → flush_cb(x1, y1, x2, y2, rgb565_bytes) → displ
 
 Two capture mechanisms already exist:
 
-1. **C++ screenshot tool** (`sources/seedsigner-c-modules/tools/screenshot_generator/`) —
+1. **C++ screenshot tool** (`sources/seedsigner-lvgl-screens/tools/screenshot_generator/`) —
    hooks the LVGL flush callback to accumulate pixel regions into a framebuffer, converts
    to RGB24, and writes PNG via libpng. Works today for standalone C screen testing.
 

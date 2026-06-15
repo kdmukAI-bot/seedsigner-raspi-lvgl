@@ -115,8 +115,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -f "${GITHUB_WORKSPACE}/sources/seedsigner-c-modules/components/seedsigner/seedsigner.cpp"
-          test -f "${GITHUB_WORKSPACE}/sources/seedsigner-c-modules/third_party/lvgl/lvgl.h"
+          test -f "${GITHUB_WORKSPACE}/sources/seedsigner-lvgl-screens/components/seedsigner/seedsigner.cpp"
+          test -f "${GITHUB_WORKSPACE}/sources/seedsigner-lvgl-screens/third_party/lvgl/lvgl.h"
 
       - name: Restore ccache
         uses: actions/cache@v4
@@ -131,8 +131,8 @@ jobs:
           WS_ROOT: ${{ github.workspace }}
           IMAGE_TAG: ${{ steps.cfg.outputs.image_tag }}
           PLATFORM: linux/arm/v6
-          SEEDSIGNER_C_MODULES_DIR: /workspace/sources/seedsigner-c-modules
-          LVGL_ROOT: /workspace/sources/seedsigner-c-modules/third_party/lvgl
+          SEEDSIGNER_LVGL_SCREENS_DIR: /workspace/sources/seedsigner-lvgl-screens
+          LVGL_ROOT: /workspace/sources/seedsigner-lvgl-screens/third_party/lvgl
           CCACHE_HOST_DIR: ${{ github.workspace }}/.ci-ccache
         run: |
           mkdir -p "${CCACHE_HOST_DIR}"

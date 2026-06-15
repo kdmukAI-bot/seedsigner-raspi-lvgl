@@ -105,4 +105,4 @@ ldd src/seedsigner_lvgl_native.cpython-310-arm-linux-gnueabihf.so || true
 Common issues:
 - **Wrong Python version**: `.so` built for 3.10 but Pi has 3.11
 - **Architecture mismatch**: `.so` built as ARMv7 but Pi Zero is ARMv6
-- **Missing symbols**: c-modules source file not included in build
+- **Missing symbols**: lvgl-screens source file not included in build

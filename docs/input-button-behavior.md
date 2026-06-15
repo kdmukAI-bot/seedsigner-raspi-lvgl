@@ -3,7 +3,7 @@
 Authoritative behavioral spec for Pi hardware integration in `seedsigner-raspi-lvgl`.
 
 Defines expected behavior for joystick + KEY1/KEY2/KEY3 on Pi Zero hardware.
-C-module implementation details live in `seedsigner-c-modules`; this document
+Screen implementation details live in `seedsigner-lvgl-screens`; this document
 defines the hardware-facing behavior contract.
 
 ---
@@ -90,7 +90,7 @@ Screens may configure each key independently as:
 - `emit` — forward to Python/controller layer, no LVGL action
 - `custom` — screen-specific handler
 
-This is configured via `nav_aux_policy_t` in the c-modules navigation system.
+This is configured via `nav_aux_policy_t` in the lvgl-screens navigation system.
 
 **Rule**: never globally hardwire KEY1/KEY3 to unrelated LVGL keys (ESC/HOME)
 unless a screen explicitly requests it.
