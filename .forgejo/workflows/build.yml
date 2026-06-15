@@ -34,8 +34,8 @@ jobs:
 
       - name: Preflight dependency check
         run: |
-          test -f sources/seedsigner-c-modules/components/seedsigner/seedsigner.cpp
-          test -f sources/seedsigner-c-modules/third_party/lvgl/lvgl.h
+          test -f sources/seedsigner-lvgl-screens/components/seedsigner/seedsigner.cpp
+          test -f sources/seedsigner-lvgl-screens/third_party/lvgl/lvgl.h
 
       - name: Pull base image
         run: docker pull --platform linux/arm/v6 "${IMAGE_TAG}"
@@ -55,8 +55,8 @@ jobs:
             -e RUN_TS="$(date -u +%Y%m%d-%H%M%S)" \
             -e ABI_JSON="${CONTAINER_REPO_DIR}/docs/abi/dev-pi-abi.json" \
             -e LOCK_FILE="${CONTAINER_REPO_DIR}/versions.lock.toml" \
-            -e SEEDSIGNER_C_MODULES_DIR="${CONTAINER_REPO_DIR}/sources/seedsigner-c-modules" \
-            -e LVGL_ROOT="${CONTAINER_REPO_DIR}/sources/seedsigner-c-modules/third_party/lvgl" \
+            -e SEEDSIGNER_LVGL_SCREENS_DIR="${CONTAINER_REPO_DIR}/sources/seedsigner-lvgl-screens" \
+            -e LVGL_ROOT="${CONTAINER_REPO_DIR}/sources/seedsigner-lvgl-screens/third_party/lvgl" \
             -e LVGL_PERF_MONITOR=0 \
             "${IMAGE_TAG}" \
             bash ./docker/build_steps.sh

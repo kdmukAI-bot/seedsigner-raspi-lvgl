@@ -12,7 +12,7 @@ compiled C/C++ owns screen behavior and rendering.
 
 ## Core constraints
 
-1. Reuse `seedsigner-c-modules` screen code as source of truth.
+1. Reuse `seedsigner-lvgl-screens` screen code as source of truth.
 2. CPython binding signatures must match MicroPython equivalents.
 3. Direct function-call model (`button_list_screen(cfg_dict)`, not RPC).
 4. Build flow is Docker-first, identical in local and GitHub Actions.
@@ -20,7 +20,7 @@ compiled C/C++ owns screen behavior and rendering.
 
 ## Layer breakdown
 
-### 1) Portable screen core (C/C++ — from seedsigner-c-modules)
+### 1) Portable screen core (C/C++ — from seedsigner-lvgl-screens)
 
 Reused directly:
 - `seedsigner.cpp` — screen construction, JSON config parsing
@@ -39,7 +39,7 @@ Python binding layer:
 - ST7789 SPI display flush (direct `/dev/spidev0.0` writes)
 - GPIO input polling via `/dev/gpiochip0` (active-low, joystick + 3 buttons)
 - LVGL runtime management (init, tick, timer handler)
-- `input_profile_set_mode(INPUT_MODE_HARDWARE)` — activates the c-modules
+- `input_profile_set_mode(INPUT_MODE_HARDWARE)` — activates the lvgl-screens
   navigation system (keypad sink, per-screen focus groups, aux key handling)
 - Result queue bridging `seedsigner_lvgl_on_button_selected()` → Python tuples
 
@@ -66,10 +66,10 @@ from MicroPython usage.
 
 ## Key boundary: navigation ownership
 
-The c-modules navigation system (`nav_bind()`) owns all focus management:
+The lvgl-screens navigation system (`nav_bind()`) owns all focus management:
 - Creates per-screen LVGL groups
 - Assigns keypad indevs to groups
 - Handles directional movement, zone transitions, aux key dispatch
 
 `module.cpp` registers the keypad indev and sets hardware input mode.
-It does **not** create groups or manage focus — that's the c-modules' job.
+It does **not** create groups or manage focus — that's the lvgl-screens' job.
