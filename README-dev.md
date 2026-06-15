@@ -3,7 +3,7 @@
 ## Local setup
 
 ```bash
-git submodule update --init --recursive   # pulls seedsigner-c-modules + LVGL
+git submodule update --init --recursive   # pulls seedsigner-lvgl-screens + LVGL
 ```
 
 ## Build
@@ -155,8 +155,8 @@ rm -rf "$DOCKER_CONFIG"; unset DOCKER_CONFIG TOKEN
 
 ### Submodules
 
-The repo includes `seedsigner-c-modules` as a git submodule under
-`sources/seedsigner-c-modules`, which itself contains LVGL as a nested
+The repo includes `seedsigner-lvgl-screens` as a git submodule under
+`sources/seedsigner-lvgl-screens`, which itself contains LVGL as a nested
 submodule (`third_party/lvgl`). The `--recursive` flag is required.
 
 ### Environment variables
@@ -165,8 +165,8 @@ submodule (`third_party/lvgl`). The `--recursive` flag is required.
 |----------|---------|---------|
 | `IMAGE_TAG` | GHCR base image for ARMv6 builds | `py310-dev` tag |
 | `LVGL_PERF_MONITOR` | Enable LVGL FPS/CPU overlay | `0` |
-| `SEEDSIGNER_C_MODULES_DIR` | Path to c-modules source | `sources/seedsigner-c-modules` |
-| `LVGL_ROOT` | Path to LVGL source | `sources/seedsigner-c-modules/third_party/lvgl` |
+| `SEEDSIGNER_LVGL_SCREENS_DIR` | Path to lvgl-screens source | `sources/seedsigner-lvgl-screens` |
+| `LVGL_ROOT` | Path to LVGL source | `sources/seedsigner-lvgl-screens/third_party/lvgl` |
 | `WS_ROOT` | Workspace root for Docker mounts | auto-detected |
 | `LOCK_FILE` | Version lock file | `versions.lock.toml` |
 | `ABI_JSON` | ABI reference file | `docs/abi/dev-pi-abi.json` |

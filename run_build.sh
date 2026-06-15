@@ -37,8 +37,8 @@ docker run --rm --platform "${PLATFORM}" \
   -e RUN_TS="${RUN_TS}" \
   -e ABI_JSON="${ABI_JSON:-${CONTAINER_REPO_DIR}/docs/abi/dev-pi-abi.json}" \
   -e LOCK_FILE="${LOCK_FILE:-${CONTAINER_REPO_DIR}/versions.lock.toml}" \
-  -e SEEDSIGNER_C_MODULES_DIR="${SEEDSIGNER_C_MODULES_DIR:-${CONTAINER_REPO_DIR}/sources/seedsigner-c-modules}" \
-  -e LVGL_ROOT="${LVGL_ROOT:-${CONTAINER_REPO_DIR}/sources/seedsigner-c-modules/third_party/lvgl}" \
+  -e SEEDSIGNER_LVGL_SCREENS_DIR="${SEEDSIGNER_LVGL_SCREENS_DIR:-${CONTAINER_REPO_DIR}/sources/seedsigner-lvgl-screens}" \
+  -e LVGL_ROOT="${LVGL_ROOT:-${CONTAINER_REPO_DIR}/sources/seedsigner-lvgl-screens/third_party/lvgl}" \
   -e LVGL_PERF_MONITOR="${LVGL_PERF_MONITOR:-0}" \
   "${IMAGE_TAG}" \
   bash ./docker/build_steps.sh

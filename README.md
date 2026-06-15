@@ -5,7 +5,7 @@ Run SeedSigner's compiled C/C++ LVGL screens on Raspberry Pi Zero (ARMv6).
 ## What this is
 
 This project compiles the screen implementations from
-[seedsigner-c-modules](https://github.com/kdmukAI-bot/seedsigner-c-modules)
+[seedsigner-lvgl-screens](https://github.com/kdmukAI-bot/seedsigner-lvgl-screens)
 into a CPython extension (`seedsigner_lvgl_native`) that runs on the Pi Zero
 hardware that production SeedSigner targets.
 
@@ -23,7 +23,7 @@ Python View layer
 CPython binding (module.cpp)
     │  JSON marshal, LVGL runtime, result queue
     ▼
-Portable screen core (seedsigner-c-modules)
+Portable screen core (seedsigner-lvgl-screens)
     │  seedsigner.cpp, components.cpp, navigation.cpp
     ▼
 Pi platform backend (module.cpp)
