@@ -9,17 +9,17 @@ from setuptools.command.build_ext import build_ext as _build_ext
 
 ROOT = Path(__file__).resolve().parent
 
-DEFAULT_CMODULES = ROOT / "sources" / "seedsigner-c-modules"
-SEEDSIGNER_C_MODULES_DIR = Path(os.environ.get("SEEDSIGNER_C_MODULES_DIR", str(DEFAULT_CMODULES))).resolve()
+DEFAULT_CMODULES = ROOT / "sources" / "seedsigner-lvgl-screens"
+SEEDSIGNER_LVGL_SCREENS_DIR = Path(os.environ.get("SEEDSIGNER_LVGL_SCREENS_DIR", str(DEFAULT_CMODULES))).resolve()
 
 _lvgl_env = os.environ.get("LVGL_ROOT")
 if _lvgl_env:
     LVGL_ROOT = Path(_lvgl_env).resolve()
 else:
-    LVGL_ROOT = (SEEDSIGNER_C_MODULES_DIR / "third_party" / "lvgl").resolve()
+    LVGL_ROOT = (SEEDSIGNER_LVGL_SCREENS_DIR / "third_party" / "lvgl").resolve()
 
-SEEDSIGNER_DIR = SEEDSIGNER_C_MODULES_DIR / "components" / "seedsigner"
-NLOHMANN_JSON_INCLUDE_DIR = SEEDSIGNER_C_MODULES_DIR / "components" / "nlohmann_json" / "include"
+SEEDSIGNER_DIR = SEEDSIGNER_LVGL_SCREENS_DIR / "components" / "seedsigner"
+NLOHMANN_JSON_INCLUDE_DIR = SEEDSIGNER_LVGL_SCREENS_DIR / "components" / "nlohmann_json" / "include"
 
 if not (SEEDSIGNER_DIR / "seedsigner.cpp").exists():
     raise RuntimeError(f"Missing seedsigner.cpp under {SEEDSIGNER_DIR}")

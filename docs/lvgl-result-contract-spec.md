@@ -1,8 +1,8 @@
 # Spec: Align the LVGL screen result contract with SeedSigner's return-code convention
 
-**Audience:** the agent working in `seedsigner-c-modules`.
+**Audience:** the agent working in `seedsigner-lvgl-screens`.
 **Status:** proposal for review. Do not commit without the maintainer's sign-off.
-**Owning repo for this change:** `seedsigner-c-modules` (it is the single source of truth
+**Owning repo for this change:** `seedsigner-lvgl-screens` (it is the single source of truth
 for the screen→host result contract). Both consumers — `seedsigner-raspi-lvgl` (CPython
 `.so`) and `seedsigner-micropython-builder` (MicroPython module) — depend on this contract
 and will be updated in lockstep (see "Migration & coordination").
@@ -88,9 +88,9 @@ Keep both callback signatures exactly as-is. This is a change in the *values* pa
 `index`, not an ABI change. That keeps the blast radius small and lets both bridges adapt by
 reading `index` instead of `strcmp`-ing `label`.
 
-## 4. Required changes in `seedsigner-c-modules`
+## 4. Required changes in `seedsigner-lvgl-screens`
 
-Paths below are relative to the c-modules repo root. Line numbers are approximate (from the
+Paths below are relative to the lvgl-screens repo root. Line numbers are approximate (from the
 current HEAD) — confirm by re-grepping.
 
 1. **Define the three constants wherever is convenient** — a local `#define`/`const` near
@@ -136,7 +136,7 @@ current HEAD) — confirm by re-grepping.
    - The weak **default** no-op implementations (`components.cpp` ~line 194, `seedsigner.cpp`
      ~line 744) need no change.
 
-8. **Update tests and docs in c-modules** that assert or describe the old
+8. **Update tests and docs in lvgl-screens** that assert or describe the old
    `0xFFFFFFFF`/`topnav_back` behavior. Grep `tests/`, `docs/`, and any README for
    `0xFFFFFFFF`, `topnav_back`, `topnav_power`, `screensaver_dismiss` and bring them in line.
    If there is a `docs/knowledge/` note describing the old contract, update it.
@@ -153,11 +153,11 @@ current HEAD) — confirm by re-grepping.
 
 ## 6. Migration & coordination (important)
 
-This is a **flag-day change to a shared contract**: once c-modules emits `1000/1001/1100`
+This is a **flag-day change to a shared contract**: once lvgl-screens emits `1000/1001/1100`
 instead of `0xFFFFFFFF`, a consumer bridge still checking `index == 0xFFFFFFFF` will
 misread the event. All three repos must move together:
 
-1. **`seedsigner-c-modules`** — this spec (emit reserved codes).
+1. **`seedsigner-lvgl-screens`** — this spec (emit reserved codes).
 2. **`seedsigner-raspi-lvgl`** — the CPython bridge maps the callback into its result queue;
    it currently special-cases `index == 0xFFFFFFFF` and `strcmp`s the label. It will be
    updated to key off `index` (>= 1000 = reserved). Handled by the maintainer / the agent in
@@ -170,7 +170,7 @@ After this change that adapter simplifies (for int results it can largely pass `
 through, since the C code now speaks the View's numbers directly). That Python work is
 tracked outside this spec.
 
-**Deliver this as a single reviewable branch/PR in c-modules.** Do not merge until the
+**Deliver this as a single reviewable branch/PR in lvgl-screens.** Do not merge until the
 consuming bridges have matching branches ready, so the contract flips everywhere at once.
 
 ## 7. Acceptance checklist
@@ -183,5 +183,5 @@ consuming bridges have matching branches ready, so the contract flips everywhere
 - [ ] Body-button and text-entry call sites unchanged in behavior.
 - [ ] Desktop tools (`screen_runner`, `screenshot_generator`) updated to recognize reserved
       codes; both still build and run.
-- [ ] c-modules tests/docs/README updated; no stale references to the old sentinel scheme.
+- [ ] lvgl-screens tests/docs/README updated; no stale references to the old sentinel scheme.
 - [ ] Callback signatures unchanged.
