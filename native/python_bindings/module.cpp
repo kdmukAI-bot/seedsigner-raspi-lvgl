@@ -91,7 +91,11 @@ static native_display_t s_native = {
     .bits_per_word = 8,
     .width = 240,
     .height = 240,
-    .bgr = false,
+    // The SeedSigner Pi Zero ST7789 panel is BGR-wired (matches SeedSigner's own
+    // display drivers, which use BGR color order). Default to BGR so the MADCTL
+    // BGR bit is set and RGB565 isn't red/blue-swapped (orange would otherwise
+    // render light blue). Override per call via native_display_init(bgr=...).
+    .bgr = true,
     .ready = false,
 };
 
@@ -1080,7 +1084,7 @@ static PyObject *py_native_display_init(PyObject *self, PyObject *args, PyObject
     int bl_pin = 24;
     const char *spi_path = "/dev/spidev0.0";
     unsigned int spi_speed_hz = 62500000;
-    int bgr = 0;
+    int bgr = 1;  // BGR by default — the Pi 0 ST7789 panel is BGR-wired (see s_native)
     int lvgl_swap_bytes = 1;
 
     if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|IIiiisIpp", const_cast<char **>(kwlist),
