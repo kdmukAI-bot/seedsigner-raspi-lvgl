@@ -54,7 +54,12 @@ def native_display_init(
     bl_pin=24,
     spi_path="/dev/spidev0.0",
     spi_speed_hz=62_500_000,
-    bgr=False,
+    # The SeedSigner Pi Zero ST7789 panel is BGR-wired — its own driver uses BGR
+    # color order (st7789_mpy color_order=BGR; the PIL path feeds "BGR;16"). The
+    # native LVGL path emits RGB565, so without the MADCTL BGR bit red/blue swap
+    # and the orange active highlight renders light blue. Default bgr=True so all
+    # Pi 0 screens get correct color without passing it on every call.
+    bgr=True,
     lvgl_swap_bytes=True,
 ):
     if _native is None:
