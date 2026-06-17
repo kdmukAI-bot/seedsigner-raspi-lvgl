@@ -5,6 +5,7 @@
 #include "seedsigner.h"
 #include "gui_constants.h"
 #include "input_profile.h"
+#include "locale_loader.h"  // ss_load_locale / ss_unload_locale (i18n font packs)
 
 #include <chrono>
 #include <cstdio>
@@ -14,6 +15,7 @@
 #include <thread>
 #include <cstdint>
 #include <cerrno>
+#include <fstream>
 #include <vector>
 
 #include <fcntl.h>
@@ -683,8 +685,15 @@ static void ensure_lvgl_runtime() {
         return;
     }
 
-    set_display(s_hor_res, s_ver_res);
+    // lv_init() MUST precede set_display(): the i18n baked floor rasterizes its
+    // five translated-text role fonts (OpenSans Western via tiny_ttf) inside
+    // set_display(), but only once lv_is_initialized() is true. With the reverse
+    // order those role fonts stay null, and the first Fallback-pack load (e.g.
+    // ru, which chains under the baseline) dereferences null -> segfault. (The
+    // old pre-i18n floor was static bitmap fonts, non-null at init, so order
+    // didn't matter then.)
     lv_init();
+    set_display(s_hor_res, s_ver_res);
 
     s_buf1.assign(static_cast<size_t>(s_hor_res) * s_ver_res * 2, 0);
 
@@ -1498,6 +1507,85 @@ static PyObject *py_clear_screen(PyObject *self, PyObject *args) {
     Py_RETURN_NONE;
 }
 
+// --- Locale / font-pack loading -------------------------------------------
+// The shared loader (ss_load_locale) owns all the orchestration: clearing the
+// previous locale, registering each role font at the right px, and — for
+// complex scripts — loading runs.bin and installing the glyph run table. The
+// ONE per-host piece is acquiring the pack bytes. On the Pi Zero that's a plain
+// filesystem read of <font_dir>/<locale>/<file>; this is the exact reference
+// provider from the screenshot generator. On the real signing device this same
+// seam is where pack-signature verification will live (see locale_loader.h).
+
+struct FsPackCtx {
+    std::string font_dir;
+    std::vector<uint8_t> scratch;  // reused per file; loader copies what it keeps
+};
+
+static bool fs_pack_provider(const char *locale, const char *file,
+                             const uint8_t **bytes, size_t *len, void *user) {
+    FsPackCtx *ctx = static_cast<FsPackCtx *>(user);
+    std::string path = ctx->font_dir + "/" + locale + "/" + file;
+    std::ifstream in(path, std::ios::binary);
+    if (!in) {
+        fprintf(stderr, "missing pack file: %s\n", path.c_str());
+        return false;
+    }
+    ctx->scratch.assign((std::istreambuf_iterator<char>(in)),
+                        std::istreambuf_iterator<char>());
+    *bytes = ctx->scratch.data();
+    *len = ctx->scratch.size();
+    return true;
+}
+
+// set_locale(locale, font_dir="lang-packs") -> bool
+//
+// Switch the active locale, loading its font packs from <font_dir>/<locale>/.
+// Returns True on success. On any missing/unreadable pack the loader restores
+// the baked Western floor and this returns False rather than raising: a missing
+// pack is a recoverable "fall back to English" condition, not a programming
+// error. (Bad argument types still raise TypeError via PyArg_ParseTuple.)
+static PyObject *py_set_locale(PyObject *self, PyObject *args) {
+    (void)self;
+
+    const char *locale = NULL;
+    const char *font_dir = "lang-packs";
+    if (!PyArg_ParseTuple(args, "s|s", &locale, &font_dir)) {
+        return NULL;
+    }
+
+    try {
+        // Font registration rasterizes via tiny_ttf, which needs a live LVGL
+        // runtime (lv_init + an allocator). Guard it the same way screens do.
+        require_lvgl_runtime();
+
+        FsPackCtx ctx;
+        ctx.font_dir = font_dir;
+
+        bool ok = ss_load_locale(locale, fs_pack_provider, &ctx);
+        return PyBool_FromLong(ok ? 1 : 0);
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+}
+
+// unload_locale() -> None
+//
+// Clear everything set_locale installed (fonts, glyph runs, owned buffers) and
+// restore the baked Western floor.
+static PyObject *py_unload_locale(PyObject *self, PyObject *args) {
+    (void)self;
+    (void)args;
+    try {
+        require_lvgl_runtime();
+        ss_unload_locale();
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+    Py_RETURN_NONE;
+}
+
 static PyMethodDef methods[] = {
     {"lvgl_init", (PyCFunction)py_lvgl_init, METH_VARARGS | METH_KEYWORDS, "Initialize LVGL runtime."},
     {"lvgl_shutdown", py_lvgl_shutdown, METH_NOARGS, "Shutdown LVGL runtime."},
@@ -1513,6 +1601,8 @@ static PyMethodDef methods[] = {
     {"native_debug_config", (PyCFunction)py_native_debug_config, METH_VARARGS | METH_KEYWORDS, "Configure native flush debug logging."},
     {"set_flush_mode", py_set_flush_mode, METH_VARARGS, "Set flush mode: native|python."},
     {"set_flush_callback", py_set_flush_callback, METH_VARARGS, "Set display flush callback(area, bytes)."},
+    {"set_locale", py_set_locale, METH_VARARGS, "set_locale(locale, font_dir='lang-packs'): load locale font packs from <font_dir>/<locale>/. Returns True on success, False if a pack is missing (falls back to baked English)."},
+    {"unload_locale", py_unload_locale, METH_NOARGS, "Clear loaded locale packs and restore the baked Western floor."},
     {"button_list_screen", py_button_list_screen, METH_VARARGS, "Render button list screen with runtime loop."},
     {"main_menu_screen", (PyCFunction)py_main_menu_screen, METH_VARARGS | METH_KEYWORDS, "Render main menu screen (2x2 grid)."},
     {"seed_add_passphrase_screen", py_seed_add_passphrase_screen, METH_VARARGS, "Render BIP39 passphrase entry screen; result is text_entered or topnav_back."},

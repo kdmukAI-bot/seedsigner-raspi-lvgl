@@ -56,14 +56,19 @@ lvgl_sources = [
 ]
 
 font_sources = [
-    "opensans_regular_17_4bpp.c",
-    "opensans_semibold_18_4bpp.c",
-    "opensans_semibold_20_4bpp.c",
-    "opensans_semibold_26_4bpp.c",
+    # Baked Western-Latin floor. On feat/font-i18n the five translated text roles
+    # (title/button/body/...) are no longer pre-rasterized bitmaps; they are
+    # rasterized at runtime via tiny_ttf from one compiled-in OpenSans Western TTF
+    # subset (Regular + SemiBold), all sizes from the same blob. See
+    # gui_constants.cpp (the post-lv_init() per-role tiny_ttf registration loop).
+    "opensans_western_regular.c",
+    "opensans_western_semibold.c",
+    # Icons (PUA) + fixed-width Inconsolata keyboard/text-entry font stay bitmap
+    # (240px profile — matches the host's SUPPORT_DISPLAY_HEIGHT_240 build).
     "seedsigner_icons_24_4bpp.c",
     "seedsigner_icons_36_4bpp.c",
     "seedsigner_icons_48_4bpp.c",
-    "inconsolata_semibold_24_4bpp.c",  # fixed-width keyboard/text-entry font (240px profile)
+    "inconsolata_semibold_24_4bpp.c",
 ]
 
 font_paths = [str(SEEDSIGNER_DIR / "fonts" / f) for f in font_sources]
@@ -115,6 +120,13 @@ ext_modules = [
             str(SEEDSIGNER_DIR / "input_profile.cpp"),
             str(SEEDSIGNER_DIR / "navigation.cpp"),
             str(SEEDSIGNER_DIR / "seedsigner.cpp"),
+            # i18n / font-pack layer (shared, host-agnostic). The host plugs into
+            # ss_load_locale() via a filesystem pack-provider (see module.cpp).
+            str(SEEDSIGNER_DIR / "locale_fonts.cpp"),     # canonical locale->font manifest
+            str(SEEDSIGNER_DIR / "font_registry.cpp"),    # tiny_ttf role-font registration
+            str(SEEDSIGNER_DIR / "locale_loader.cpp"),    # ss_load_locale orchestration
+            str(SEEDSIGNER_DIR / "glyph_runs.cpp"),       # complex-script pre-shaped runs
+            str(SEEDSIGNER_DIR / "stb_glyph_metrics.c"),  # glyph boxes for run rendering
             str(SEEDSIGNER_DIR / "images" / "seedsigner_logo_img.c"),
             *font_paths,
             *lvgl_sources,
@@ -123,6 +135,22 @@ ext_modules = [
         define_macros=[
             ("LV_CONF_SKIP", "1"),
             ("LV_USE_DRAW_SW_ASM", "LV_DRAW_SW_ASM_NONE"),
+            # Use glibc malloc, not LVGL's 64KB builtin fixed pool (the LV_CONF_SKIP
+            # default). The shared font code enables the tiny_ttf glyph cache
+            # (SEEDSIGNER_TTF_CACHE_SIZE), which retains rasterized bitmaps; a 64KB
+            # pool OOMs and LVGL's default assert handler spins. The Pi Zero has
+            # 512MB, but LVGL only sees it through CLIB malloc. See
+            # docs/knowledge/tiny-ttf-cache-needs-clib-malloc.md.
+            ("LV_USE_STDLIB_MALLOC", "LV_STDLIB_CLIB"),
+            # Runtime font loading: per-locale subset TTFs (and the baked OpenSans
+            # Western floor) are rasterized from in-memory buffers via
+            # lv_tiny_ttf_create_data_ex() — the registration seam the loader drives.
+            ("LV_USE_TINY_TTF", "1"),
+            # Farsi/Arabic i18n: BIDI = right-to-left reordering of mixed RTL/LTR
+            # text; ARABIC_PERSIAN_CHARS = cursive base-letter -> presentation-form
+            # shaping. Both must match the font packs (subset to the shaper's forms).
+            ("LV_USE_BIDI", "1"),
+            ("LV_USE_ARABIC_PERSIAN_CHARS", "1"),
             ("SUPPORT_DISPLAY_HEIGHT_240", "1"),
             *(
                 [("LV_USE_SYSMON", "1"), ("LV_USE_PERF_MONITOR", "1")]
