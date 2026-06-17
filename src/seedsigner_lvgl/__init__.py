@@ -54,17 +54,17 @@ def native_display_init(
     bl_pin=24,
     spi_path="/dev/spidev0.0",
     spi_speed_hz=62_500_000,
-    # The SeedSigner Pi Zero ST7789 panel is BGR-wired — its own driver uses BGR
-    # color order (st7789_mpy color_order=BGR; the PIL path feeds "BGR;16"). The
-    # native LVGL path emits RGB565, so without the MADCTL BGR bit red/blue swap
-    # and the orange active highlight renders light blue. Default bgr=True so all
-    # Pi 0 screens get correct color without passing it on every call.
-    bgr=True,
+    # bgr=None defers to the native driver's default, which is the single source
+    # of truth: the SeedSigner Pi Zero ST7789 panel is BGR-wired, so the C
+    # default is True (sets the MADCTL BGR bit; otherwise RGB565 red/blue swap
+    # makes the orange active highlight render light blue). Pass True/False to
+    # override for a future non-ST7789 panel.
+    bgr=None,
     lvgl_swap_bytes=True,
 ):
     if _native is None:
         raise NotImplementedError("Native binding not available.")
-    return _native.native_display_init(
+    kwargs = dict(
         width=width,
         height=height,
         dc_pin=dc_pin,
@@ -72,9 +72,11 @@ def native_display_init(
         bl_pin=bl_pin,
         spi_path=spi_path,
         spi_speed_hz=spi_speed_hz,
-        bgr=bgr,
         lvgl_swap_bytes=lvgl_swap_bytes,
     )
+    if bgr is not None:
+        kwargs["bgr"] = bgr  # explicit override; otherwise the native default applies
+    return _native.native_display_init(**kwargs)
 
 
 def clear_screen():
