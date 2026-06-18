@@ -3,8 +3,15 @@
 Prefer native CPython extension when available.
 """
 
+from pathlib import Path
+
 from ._queue import clear_result_queue as _py_clear_result_queue
 from ._queue import poll_for_result as _py_poll_for_result
+
+# On-device language packs ship next to this package (rsynced alongside the .so).
+# Layout mirrors the screens repo: <DEFAULT_FONT_DIR>/<locale>/{<locale>.ttf,
+# runs.bin, ...}. Callers may override font_dir to point elsewhere (e.g. tests).
+DEFAULT_FONT_DIR = Path(__file__).resolve().parent / "lang-packs"
 
 try:
     import seedsigner_lvgl_native as _native  # type: ignore
@@ -47,12 +54,17 @@ def native_display_init(
     bl_pin=24,
     spi_path="/dev/spidev0.0",
     spi_speed_hz=62_500_000,
-    bgr=False,
+    # bgr=None defers to the native driver's default, which is the single source
+    # of truth: the SeedSigner Pi Zero ST7789 panel is BGR-wired, so the C
+    # default is True (sets the MADCTL BGR bit; otherwise RGB565 red/blue swap
+    # makes the orange active highlight render light blue). Pass True/False to
+    # override for a future non-ST7789 panel.
+    bgr=None,
     lvgl_swap_bytes=True,
 ):
     if _native is None:
         raise NotImplementedError("Native binding not available.")
-    return _native.native_display_init(
+    kwargs = dict(
         width=width,
         height=height,
         dc_pin=dc_pin,
@@ -60,9 +72,11 @@ def native_display_init(
         bl_pin=bl_pin,
         spi_path=spi_path,
         spi_speed_hz=spi_speed_hz,
-        bgr=bgr,
         lvgl_swap_bytes=lvgl_swap_bytes,
     )
+    if bgr is not None:
+        kwargs["bgr"] = bgr  # explicit override; otherwise the native default applies
+    return _native.native_display_init(**kwargs)
 
 
 def clear_screen():
@@ -132,6 +146,29 @@ def lvgl_pump(duration_ms=10, sleep_ms=1):
     return _native.lvgl_pump(duration_ms=duration_ms, sleep_ms=sleep_ms)
 
 
+def set_locale(locale, font_dir=None):
+    """Switch the active locale, loading its font packs from <font_dir>/<locale>/.
+
+    font_dir defaults to the language packs shipped beside this package
+    (DEFAULT_FONT_DIR). Returns True on success; returns False if a required
+    pack file is missing, in which case the loader has restored the baked
+    Western (English) floor. Must be called after lvgl_init() — font
+    registration rasterizes glyphs via tiny_ttf and needs a live LVGL runtime.
+    """
+    if _native is None:
+        raise NotImplementedError("Native binding not available.")
+    if font_dir is None:
+        font_dir = DEFAULT_FONT_DIR
+    return _native.set_locale(str(locale), str(font_dir))
+
+
+def unload_locale():
+    """Clear loaded locale packs and restore the baked Western floor."""
+    if _native is None:
+        return None
+    return _native.unload_locale()
+
+
 def button_list_screen(cfg_dict):
     if _native is None:
         raise NotImplementedError("Native binding not available.")
@@ -199,6 +236,8 @@ __all__ = [
     "set_flush_mode",
     "bind_display",
     "lvgl_pump",
+    "set_locale",
+    "unload_locale",
     "button_list_screen",
     "seed_add_passphrase_screen",
     "main_menu_screen",
