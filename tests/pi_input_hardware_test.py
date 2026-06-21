@@ -24,7 +24,7 @@ SRC_DIR = REPO_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-import seedsigner_lvgl as lv
+import seedsigner_lvgl_screens as lv
 
 # How long each lvgl_pump cycle runs (ms) before returning to Python.
 # Shorter = more responsive to Ctrl+C, but slightly more Python overhead.

@@ -4,9 +4,9 @@ import pytest
 
 def _native_or_skip():
     try:
-        return importlib.import_module("seedsigner_lvgl_native")
+        return importlib.import_module("seedsigner_lvgl_screens")
     except ModuleNotFoundError:
-        pytest.skip("seedsigner_lvgl_native not built/installed in this test environment")
+        pytest.skip("seedsigner_lvgl_screens not built/installed in this test environment")
 
 
 def test_native_module_import_and_queue_shape():

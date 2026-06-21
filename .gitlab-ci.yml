@@ -69,9 +69,9 @@ build-armv6:
       docker rm "${BUILD_CONTAINER}" || true
 
       # Verify artifact exists.
-      ls -la src/seedsigner_lvgl_native*.so
+      ls -la src/seedsigner_lvgl_screens*.so
   artifacts:
     paths:
-      - src/seedsigner_lvgl_native*.so
+      - src/seedsigner_lvgl_screens*.so
       - logs/
     expire_in: 30 days

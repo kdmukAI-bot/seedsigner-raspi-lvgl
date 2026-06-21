@@ -13,7 +13,7 @@ Python View code on Pi Zero.
 ## Call signature: button_list_screen
 
 ```python
-import seedsigner_lvgl_native as mod
+import seedsigner_lvgl_screens as mod
 
 mod.lvgl_init(hor_res=240, ver_res=240)
 mod.native_display_init()  # on Pi hardware

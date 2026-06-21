@@ -284,7 +284,7 @@ static int gpiochip_request_input_line(int chip_fd, int pin, const char *consume
         if (ioctl(chip_fd, GPIO_GET_LINEHANDLE_IOCTL, &req) < 0) {
             throw std::runtime_error("GPIO_GET_LINEHANDLE_IOCTL(input) failed pin=" + std::to_string(pin) + " errno=" + std::to_string(errno));
         }
-        fprintf(stderr, "[seedsigner_lvgl_native] WARN: pull-up not supported for pin %d, using default bias\n", pin);
+        fprintf(stderr, "[seedsigner_lvgl_screens] WARN: pull-up not supported for pin %d, using default bias\n", pin);
     }
     return req.fd;
 }
@@ -357,7 +357,7 @@ static void native_input_shutdown() {
 
 static void native_input_init() {
     if (!s_native.gpiochip_ready) {
-        fprintf(stderr, "[seedsigner_lvgl_native] input init skipped: gpiochip not ready\n");
+        fprintf(stderr, "[seedsigner_lvgl_screens] input init skipped: gpiochip not ready\n");
         return;
     }
     native_input_shutdown();
@@ -370,7 +370,7 @@ static void native_input_init() {
     s_input.key2_fd = gpiochip_request_input_line(s_native.gpio_chip_fd, s_input.key2_pin, "sslvgl-in-key2");
     s_input.key3_fd = gpiochip_request_input_line(s_native.gpio_chip_fd, s_input.key3_pin, "sslvgl-in-key3");
     s_input.ready = true;
-    fprintf(stderr, "[seedsigner_lvgl_native] input init OK: 8 lines open (pull-up requested)\n");
+    fprintf(stderr, "[seedsigner_lvgl_screens] input init OK: 8 lines open (pull-up requested)\n");
 }
 
 // Open gpiochip and initialize only input lines (no display GPIO).
@@ -607,7 +607,7 @@ static void flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map)
 
     if (s_use_native_flush && s_native.ready) {
         if (s_native_debug_log && s_native_flush_log_count < s_native_flush_log_limit) {
-            fprintf(stderr, "[seedsigner_lvgl_native] flush #%u area=(%d,%d)-(%d,%d) w=%d h=%d nbytes=%zu\n",
+            fprintf(stderr, "[seedsigner_lvgl_screens] flush #%u area=(%d,%d)-(%d,%d) w=%d h=%d nbytes=%zu\n",
                     s_native_flush_log_count + 1, area->x1, area->y1, area->x2, area->y2, w, h, nbytes);
             s_native_flush_log_count++;
         }
@@ -625,7 +625,7 @@ static void flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map)
             }
             native_display_blit(area->x1, area->y1, area->x2, area->y2, src, nbytes);
         } catch (const std::exception &e) {
-            fprintf(stderr, "[seedsigner_lvgl_native] native flush failed: %s\n", e.what());
+            fprintf(stderr, "[seedsigner_lvgl_screens] native flush failed: %s\n", e.what());
         }
     } else if (s_flush_cb_py != NULL) {
         PyGILState_STATE gil = PyGILState_Ensure();
@@ -1146,7 +1146,7 @@ static PyObject *py_native_display_init(PyObject *self, PyObject *args, PyObject
         try {
             native_input_init();
         } catch (const std::exception &e) {
-            fprintf(stderr, "[seedsigner_lvgl_native] native input init skipped: %s\n", e.what());
+            fprintf(stderr, "[seedsigner_lvgl_screens] native input init skipped: %s\n", e.what());
             native_input_shutdown();
         }
 
@@ -1620,12 +1620,12 @@ static PyMethodDef methods[] = {
 
 static struct PyModuleDef module_def = {
     PyModuleDef_HEAD_INIT,
-    "seedsigner_lvgl_native",
+    "seedsigner_lvgl_screens",
     "SeedSigner LVGL native binding scaffold",
     -1,
     methods,
 };
 
-PyMODINIT_FUNC PyInit_seedsigner_lvgl_native(void) {
+PyMODINIT_FUNC PyInit_seedsigner_lvgl_screens(void) {
     return PyModule_Create(&module_def);
 }

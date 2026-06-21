@@ -19,7 +19,7 @@ Clone the repo on the Pi and place the built `.so` in `src/`:
 git clone https://github.com/kdmukAI-bot/seedsigner-raspi-lvgl.git
 cd seedsigner-raspi-lvgl
 # Copy the .so into src/ (from CI artifact download, scp, etc.)
-cp /path/to/seedsigner_lvgl_native.cpython-310-arm-linux-gnueabihf.so src/
+cp /path/to/seedsigner_lvgl_screens.cpython-310-arm-linux-gnueabihf.so src/
 ```
 
 This gives you the test scripts, Python wrapper package, and correct
@@ -31,7 +31,7 @@ Copy the minimum set of files to a directory on the Pi:
 
 ```bash
 rsync -avz \
-  src/seedsigner_lvgl_native.cpython-310-arm-linux-gnueabihf.so \
+  src/seedsigner_lvgl_screens.cpython-310-arm-linux-gnueabihf.so \
   tests/pi_input_hardware_test.py \
   pi@<pi-host>:/home/pi/seedsigner-raspi-lvgl-test/
 ```
@@ -50,7 +50,7 @@ Expected: `armv6l cpython-310-arm-linux-gnueabihf`
 ## 2) Verify import
 
 ```bash
-PYTHONPATH=src python3 -c "import seedsigner_lvgl_native; print('OK')"
+PYTHONPATH=src python3 -c "import seedsigner_lvgl_screens; print('OK')"
 ```
 
 If this fails, see the diagnostics section below.
@@ -97,9 +97,9 @@ If the extension fails to import, collect:
 
 ```bash
 python3 -c "import sys, sysconfig, platform; print(sys.version); print(platform.machine()); print(sysconfig.get_config_var('SOABI'))"
-file src/seedsigner_lvgl_native.cpython-310-arm-linux-gnueabihf.so
-readelf -A src/seedsigner_lvgl_native.cpython-310-arm-linux-gnueabihf.so | head -20
-ldd src/seedsigner_lvgl_native.cpython-310-arm-linux-gnueabihf.so || true
+file src/seedsigner_lvgl_screens.cpython-310-arm-linux-gnueabihf.so
+readelf -A src/seedsigner_lvgl_screens.cpython-310-arm-linux-gnueabihf.so | head -20
+ldd src/seedsigner_lvgl_screens.cpython-310-arm-linux-gnueabihf.so || true
 ```
 
 Common issues:

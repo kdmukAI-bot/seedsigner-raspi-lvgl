@@ -112,7 +112,7 @@ if cross_build and python_target_ldlibrary:
 
 ext_modules = [
     Extension(
-        "seedsigner_lvgl_native",
+        "seedsigner_lvgl_screens",
         sources=[
             "native/python_bindings/module.cpp",
             str(SEEDSIGNER_DIR / "components.cpp"),

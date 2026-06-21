@@ -9,7 +9,7 @@ The shared font code in c-modules (`components/seedsigner/font_registry.cpp`, `g
 its tiny_ttf fonts with the glyph/draw cache **enabled by default** (`SEEDSIGNER_TTF_CACHE_SIZE = 256` in
 `gui_constants.h`). The cache retains rasterized glyph bitmaps for redraw/scroll speed.
 
-Without the allocator override, the `seedsigner_lvgl_native` extension compiles under `LV_CONF_SKIP=1`,
+Without the allocator override, the `seedsigner_lvgl_screens` extension compiles under `LV_CONF_SKIP=1`,
 whose default is `LV_USE_STDLIB_MALLOC = LV_STDLIB_BUILTIN` with a **fixed 64 KB pool** (`LV_MEM_SIZE`).
 LVGL would then see only 64 KB — **the board's 512 MB never reaches it.** The cache's retained CJK bitmaps
 exhaust 64 KB, the next `lv_malloc` returns NULL, and LVGL's default `LV_ASSERT_MALLOC` →
