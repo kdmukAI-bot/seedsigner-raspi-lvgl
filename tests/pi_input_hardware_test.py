@@ -43,14 +43,14 @@ def pump_until_result():
 def show_main_menu():
     """Render main menu and wait for input."""
     lv.clear_result_queue()
-    lv.main_menu_screen(wait_timeout_ms=1)
+    lv.main_menu_screen()
     return pump_until_result()
 
 
 def show_screensaver():
     """Render screensaver and wait for any key press to exit."""
     lv.clear_result_queue()
-    lv.screensaver_screen(wait_timeout_ms=1)
+    lv.screensaver_screen()
     return pump_until_result()
 
 
@@ -64,8 +64,6 @@ def show_button_list(title, buttons, *, show_back=True):
             "show_power_button": False,
         },
         "button_list": buttons,
-        "wait_timeout_ms": 1,
-        "allow_timeout_fallback": False,
     }
     lv.button_list_screen(cfg)
     return pump_until_result()

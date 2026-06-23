@@ -70,10 +70,8 @@ def show_list(title, buttons, *, show_back, show_power):
     cfg = {
         "top_nav": {"title": title, "show_back_button": show_back, "show_power_button": show_power},
         "button_list": buttons,
-        "wait_timeout_ms": 1,            # don't block in C; we pump from Python
-        "allow_timeout_fallback": False,
     }
-    lv.button_list_screen(cfg)
+    lv.button_list_screen(cfg)  # pure builder: returns immediately, we pump from Python
     return pump_until_result()
 
 

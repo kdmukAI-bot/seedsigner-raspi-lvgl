@@ -6,6 +6,7 @@
 #include "gui_constants.h"
 #include "input_profile.h"
 #include "locale_loader.h"  // ss_load_locale / ss_unload_locale (i18n font packs)
+#include "overlay_manager.h"  // native screensaver idle-watch dispatcher
 
 #include <chrono>
 #include <cstdio>
@@ -713,6 +714,12 @@ static void ensure_lvgl_runtime() {
 
     input_profile_set_mode(INPUT_MODE_HARDWARE);
 
+    // Start the native overlay manager (screensaver idle-watch) now that the
+    // display + input devices exist — its contract requires both. The dispatcher
+    // runs inside lv_timer_handler() (pumped by lvgl_pump). The idle timeout is
+    // configured later by the Python runtime via set_screensaver_timeout().
+    overlay_manager_init();
+
     s_last_tick_ms = now_ms();
     s_lvgl_inited = true;
 }
@@ -786,46 +793,15 @@ static void validate_cfg(PyObject *cfg) {
         }
         throw std::runtime_error("button_list entries must be string or array/tuple with string label at index 0");
     }
-}
 
-static const char *extract_first_label(PyObject *cfg, char *buf, size_t buf_size) {
-    PyObject *button_list = PyDict_GetItemString(cfg, "button_list");
-    if (!button_list || !PyList_Check(button_list) || PyList_Size(button_list) == 0) {
-        std::snprintf(buf, buf_size, "%s", "staged_timeout_fallback");
-        return buf;
+    // Optional per-screen screensaver policy (view-owned). When present it must be
+    // a bool; it rides in the cfg JSON to the shared parser, which stamps the
+    // screen's root object so the overlay dispatcher honors it. Absent = default
+    // (screensaver allowed), applied by the shared parser.
+    PyObject *allow_screensaver = PyDict_GetItemString(cfg, "allow_screensaver");
+    if (allow_screensaver && !PyBool_Check(allow_screensaver)) {
+        throw std::runtime_error("allow_screensaver must be a bool");
     }
-
-    PyObject *first = PyList_GetItem(button_list, 0);  // borrowed
-    if (!first) {
-        std::snprintf(buf, buf_size, "%s", "staged_timeout_fallback");
-        return buf;
-    }
-
-    if (PyUnicode_Check(first)) {
-        const char *s = PyUnicode_AsUTF8(first);
-        if (s) {
-            std::snprintf(buf, buf_size, "%s", s);
-            return buf;
-        }
-    }
-
-    if (PyList_Check(first) || PyTuple_Check(first)) {
-        if (PySequence_Size(first) > 0) {
-            PyObject *item0 = PySequence_GetItem(first, 0);
-            if (item0 && PyUnicode_Check(item0)) {
-                const char *s = PyUnicode_AsUTF8(item0);
-                if (s) {
-                    std::snprintf(buf, buf_size, "%s", s);
-                    Py_DECREF(item0);
-                    return buf;
-                }
-            }
-            Py_XDECREF(item0);
-        }
-    }
-
-    std::snprintf(buf, buf_size, "%s", "staged_timeout_fallback");
-    return buf;
 }
 
 static std::string py_cfg_to_json(PyObject *cfg) {
@@ -889,26 +865,6 @@ static int lvgl_runtime_pump(unsigned int duration_ms, unsigned int sleep_ms) {
             break;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(sleep_ms));
-    }
-    return 0;
-}
-
-// Returns 0 on result, -1 on Python signal (e.g. KeyboardInterrupt).
-static int run_lvgl_until_result_or_timeout(unsigned int timeout_ms) {
-    auto start = std::chrono::steady_clock::now();
-    while (s_count == 0) {
-        if (lvgl_runtime_pump(5, 1) < 0) {
-            return -1;
-        }
-
-        if (timeout_ms == 0) {
-            continue;  // no timeout — run until a result arrives
-        }
-        auto now = std::chrono::steady_clock::now();
-        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - start).count();
-        if (elapsed >= static_cast<long long>(timeout_ms)) {
-            break;
-        }
     }
     return 0;
 }
@@ -1259,33 +1215,11 @@ static PyObject *py_poll_for_result(PyObject *self, PyObject *args) {
     return Py_BuildValue("(sis)", kind_to_event_name(ev.kind), ev.index, ev.label);
 }
 
-static unsigned int cfg_wait_timeout_ms(PyObject *cfg, unsigned int default_ms) {
-    PyObject *obj = PyDict_GetItemString(cfg, "wait_timeout_ms");
-    if (!obj) {
-        return default_ms;
-    }
-    if (!PyLong_Check(obj)) {
-        throw std::runtime_error("wait_timeout_ms must be an integer");
-    }
-    long v = PyLong_AsLong(obj);
-    if (v < 0) {
-        throw std::runtime_error("wait_timeout_ms must be >= 0");
-    }
-    return static_cast<unsigned int>(v);
-}
-
-static bool cfg_allow_timeout_fallback(PyObject *cfg, bool default_enabled) {
-    PyObject *obj = PyDict_GetItemString(cfg, "allow_timeout_fallback");
-    if (!obj) {
-        return default_enabled;
-    }
-    int truth = PyObject_IsTrue(obj);
-    if (truth < 0) {
-        throw std::runtime_error("allow_timeout_fallback must be bool-like");
-    }
-    return truth != 0;
-}
-
+// Pure builder. The native screen functions below build the LVGL widget tree and
+// return immediately; the unified Python loop (lvgl_pump + poll_for_result) drives
+// the event loop and the overlay manager's screensaver dispatcher. They no longer
+// run an internal wait-for-result loop — that mechanism (and its dead
+// allow_timeout_fallback result synthesis) was retired with the runner collapse.
 static PyObject *py_button_list_screen(PyObject *self, PyObject *args) {
     (void)self;
 
@@ -1298,26 +1232,12 @@ static PyObject *py_button_list_screen(PyObject *self, PyObject *args) {
         validate_cfg(cfg);
         require_lvgl_runtime();
 
-        const unsigned int wait_timeout_ms = cfg_wait_timeout_ms(cfg, 0);
-        const bool allow_timeout_fallback = cfg_allow_timeout_fallback(cfg, false);
-
         std::string cfg_json = py_cfg_to_json(cfg);
         button_list_screen((void *)cfg_json.c_str());
         // SeedSigner C modules are the source of truth for navigation/focus wiring.
         // button_list_screen() already binds navigation via nav_bind(), including
         // indev/group ownership. Do not attach a parallel binding-layer group here.
         s_last_path = "compiled";
-
-        if (run_lvgl_until_result_or_timeout(wait_timeout_ms) < 0) {
-            return NULL;  // Python signal pending (e.g. KeyboardInterrupt)
-        }
-
-        if (s_count == 0 && allow_timeout_fallback) {
-            char label_buf[RESULT_LABEL_MAX];
-            const char *label = extract_first_label(cfg, label_buf, sizeof(label_buf));
-            queue_push(RESULT_BUTTON_SELECTED, 0, label);
-            s_last_path = "fallback_timeout";
-        }
     } catch (const std::exception &e) {
         PyErr_SetString(PyExc_RuntimeError, e.what());
         return NULL;
@@ -1343,9 +1263,6 @@ static PyObject *py_seed_add_passphrase_screen(PyObject *self, PyObject *args) {
     try {
         require_lvgl_runtime();
 
-        const unsigned int wait_timeout_ms =
-            (cfg && cfg != Py_None) ? cfg_wait_timeout_ms(cfg, 0) : 0;
-
         // The screen accepts an optional JSON ctx (top_nav, initial_text,
         // max_length, input mode override). With no cfg, pass NULL and let the
         // C side apply its defaults ("Enter Passphrase").
@@ -1356,10 +1273,6 @@ static PyObject *py_seed_add_passphrase_screen(PyObject *self, PyObject *args) {
             seed_add_passphrase_screen(NULL);
         }
         s_last_path = "compiled";
-
-        if (run_lvgl_until_result_or_timeout(wait_timeout_ms) < 0) {
-            return NULL;  // Python signal pending (e.g. KeyboardInterrupt)
-        }
     } catch (const std::exception &e) {
         PyErr_SetString(PyExc_RuntimeError, e.what());
         return NULL;
@@ -1368,29 +1281,13 @@ static PyObject *py_seed_add_passphrase_screen(PyObject *self, PyObject *args) {
     Py_RETURN_NONE;
 }
 
-static PyObject *py_main_menu_screen(PyObject *self, PyObject *args, PyObject *kwargs) {
+static PyObject *py_main_menu_screen(PyObject *self, PyObject *args) {
     (void)self;
-    static const char *kwlist[] = {"wait_timeout_ms", "allow_timeout_fallback", NULL};
-    unsigned int wait_timeout_ms = 0;
-    int allow_timeout_fallback = 0;
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|Ip", const_cast<char **>(kwlist),
-                                     &wait_timeout_ms, &allow_timeout_fallback)) {
-        return NULL;
-    }
-
+    (void)args;
     try {
         require_lvgl_runtime();
         main_menu_screen(NULL);
         s_last_path = "compiled";
-
-        if (run_lvgl_until_result_or_timeout(wait_timeout_ms) < 0) {
-            return NULL;  // Python signal pending (e.g. KeyboardInterrupt)
-        }
-
-        if (s_count == 0 && allow_timeout_fallback) {
-            queue_push(RESULT_BUTTON_SELECTED, 0, "Scan");
-            s_last_path = "fallback_timeout";
-        }
     } catch (const std::exception &e) {
         PyErr_SetString(PyExc_RuntimeError, e.what());
         return NULL;
@@ -1399,24 +1296,15 @@ static PyObject *py_main_menu_screen(PyObject *self, PyObject *args, PyObject *k
     Py_RETURN_NONE;
 }
 
-static PyObject *py_screensaver_screen(PyObject *self, PyObject *args, PyObject *kwargs) {
+// Dead under the unified runner (the overlay manager owns the screensaver now);
+// kept registered as a handy manual-test builder. Pure builder like the rest.
+static PyObject *py_screensaver_screen(PyObject *self, PyObject *args) {
     (void)self;
-    static const char *kwlist[] = {"wait_timeout_ms", "allow_timeout_fallback", NULL};
-    unsigned int wait_timeout_ms = 0;
-    int allow_timeout_fallback = 0;
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|Ip", const_cast<char **>(kwlist),
-                                     &wait_timeout_ms, &allow_timeout_fallback)) {
-        return NULL;
-    }
-
+    (void)args;
     try {
         require_lvgl_runtime();
         screensaver_screen(NULL);
         s_last_path = "compiled";
-
-        if (run_lvgl_until_result_or_timeout(wait_timeout_ms) < 0) {
-            return NULL;  // Python signal pending (e.g. KeyboardInterrupt)
-        }
     } catch (const std::exception &e) {
         PyErr_SetString(PyExc_RuntimeError, e.what());
         return NULL;
@@ -1590,6 +1478,22 @@ static PyObject *py_unload_locale(PyObject *self, PyObject *args) {
     Py_RETURN_NONE;
 }
 
+// set_screensaver_timeout(ms) -> None
+//
+// Idle time (ms) before the native overlay manager activates the screensaver;
+// 0 disables it. The Python runtime calls this once at init with the configured
+// screensaver_activation_ms. Per-screen opt-out is declarative (the cfg's
+// allow_screensaver bool), so there is no suspend/resume export.
+static PyObject *py_set_screensaver_timeout(PyObject *self, PyObject *args) {
+    (void)self;
+    unsigned int ms = 0;
+    if (!PyArg_ParseTuple(args, "I", &ms)) {
+        return NULL;
+    }
+    overlay_manager_set_screensaver_timeout(static_cast<uint32_t>(ms));
+    Py_RETURN_NONE;
+}
+
 static PyMethodDef methods[] = {
     {"lvgl_init", (PyCFunction)py_lvgl_init, METH_VARARGS | METH_KEYWORDS, "Initialize LVGL runtime."},
     {"lvgl_shutdown", py_lvgl_shutdown, METH_NOARGS, "Shutdown LVGL runtime."},
@@ -1607,10 +1511,11 @@ static PyMethodDef methods[] = {
     {"set_flush_callback", py_set_flush_callback, METH_VARARGS, "Set display flush callback(area, bytes)."},
     {"set_locale", py_set_locale, METH_VARARGS, "set_locale(locale, font_dir='lang-packs'): load locale font packs from <font_dir>/<locale>/. Returns True on success, False if a pack is missing (falls back to baked English)."},
     {"unload_locale", py_unload_locale, METH_NOARGS, "Clear loaded locale packs and restore the baked Western floor."},
-    {"button_list_screen", py_button_list_screen, METH_VARARGS, "Render button list screen with runtime loop."},
-    {"main_menu_screen", (PyCFunction)py_main_menu_screen, METH_VARARGS | METH_KEYWORDS, "Render main menu screen (2x2 grid)."},
-    {"seed_add_passphrase_screen", py_seed_add_passphrase_screen, METH_VARARGS, "Render BIP39 passphrase entry screen; result is text_entered or topnav_back."},
-    {"screensaver_screen", (PyCFunction)py_screensaver_screen, METH_VARARGS | METH_KEYWORDS, "Render screensaver (bouncing logo)."},
+    {"set_screensaver_timeout", py_set_screensaver_timeout, METH_VARARGS, "set_screensaver_timeout(ms): idle ms before the native screensaver activates (0 disables)."},
+    {"button_list_screen", py_button_list_screen, METH_VARARGS, "Build the button list screen (returns immediately; pump + poll for the result)."},
+    {"main_menu_screen", py_main_menu_screen, METH_NOARGS, "Build the main menu screen (2x2 grid); returns immediately."},
+    {"seed_add_passphrase_screen", py_seed_add_passphrase_screen, METH_VARARGS, "Build the BIP39 passphrase entry screen; result is text_entered or topnav_back."},
+    {"screensaver_screen", py_screensaver_screen, METH_NOARGS, "Build the screensaver (bouncing logo); returns immediately. Manual-test helper (the overlay manager owns the screensaver at runtime)."},
     {"clear_result_queue", py_clear_result_queue, METH_NOARGS, "Clear result queue."},
     {"poll_for_result", py_poll_for_result, METH_NOARGS, "Poll next result tuple or None."},
     {"_debug_last_path", py_debug_last_path, METH_NOARGS, "Debug helper for bridge path."},
