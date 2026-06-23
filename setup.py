@@ -73,6 +73,36 @@ font_sources = [
 
 font_paths = [str(SEEDSIGNER_DIR / "fonts" / f) for f in font_sources]
 
+# --- Display-height profile -------------------------------------------------
+# The native screens bake one logo asset per display-height profile (100x=240px,
+# 133x=320px, 200x=480px) and pick the variant at runtime by px_multiplier.
+# gui_constants.{h,cpp} #ifdef-gate the LV_IMAGE_DECLAREs and the get_logo()
+# selectors on SUPPORT_DISPLAY_HEIGHT_<N>, so a build references only its own
+# profile's logo symbols. The image .c files themselves are NOT guarded — each
+# unconditionally defines its symbol — so the source list is what gates them.
+# Unlike the firmware (CMake lists every variant and drops the unreferenced ones
+# at link via --gc-sections), this extension does not link with --gc-sections, so
+# it must compile in ONLY the active profile's image .c files. Derive both the
+# SUPPORT_DISPLAY_HEIGHT_<N> macro and the image source set from one height value.
+# The Pi panel is 240px tall (240x240; a 320x240 width switch keeps height 240).
+DISPLAY_HEIGHT = int(os.environ.get("DISPLAY_HEIGHT", "240"))
+
+# height -> image-asset filename suffix (matches the px_multiplier: 100/133/200).
+_LOGO_SUFFIX_BY_HEIGHT = {240: "", 320: "_133x", 480: "_200x"}
+if DISPLAY_HEIGHT not in _LOGO_SUFFIX_BY_HEIGHT:
+    raise RuntimeError(
+        f"Unsupported DISPLAY_HEIGHT={DISPLAY_HEIGHT}; expected one of "
+        f"{sorted(_LOGO_SUFFIX_BY_HEIGHT)}"
+    )
+_logo_suffix = _LOGO_SUFFIX_BY_HEIGHT[DISPLAY_HEIGHT]
+
+# Base SeedSigner wordmark (screensaver + splash) + HRF partner logo (splash),
+# for the active height only.
+logo_sources = [
+    str(SEEDSIGNER_DIR / "images" / f"seedsigner_logo_img{_logo_suffix}.c"),
+    str(SEEDSIGNER_DIR / "images" / f"hrf_logo_img{_logo_suffix}.c"),
+]
+
 cross_build = os.environ.get("CROSS_BUILD", "0") == "1"
 armv6_force = os.environ.get("ARMV6_FORCE", "0") == "1"
 python_target_include = os.environ.get("PYTHON_TARGET_INCLUDE", "").strip()
@@ -120,6 +150,7 @@ ext_modules = [
             str(SEEDSIGNER_DIR / "input_profile.cpp"),
             str(SEEDSIGNER_DIR / "navigation.cpp"),
             str(SEEDSIGNER_DIR / "seedsigner.cpp"),
+            str(SEEDSIGNER_DIR / "overlay_manager.cpp"),  # native screensaver idle-watch dispatcher
             # i18n / font-pack layer (shared, host-agnostic). The host plugs into
             # ss_load_locale() via a filesystem pack-provider (see module.cpp).
             str(SEEDSIGNER_DIR / "locale_fonts.cpp"),     # canonical locale->font manifest
@@ -127,7 +158,7 @@ ext_modules = [
             str(SEEDSIGNER_DIR / "locale_loader.cpp"),    # ss_load_locale orchestration
             str(SEEDSIGNER_DIR / "glyph_runs.cpp"),       # complex-script pre-shaped runs
             str(SEEDSIGNER_DIR / "stb_glyph_metrics.c"),  # glyph boxes for run rendering
-            str(SEEDSIGNER_DIR / "images" / "seedsigner_logo_img.c"),
+            *logo_sources,
             *font_paths,
             *lvgl_sources,
         ],
@@ -151,7 +182,7 @@ ext_modules = [
             # shaping. Both must match the font packs (subset to the shaper's forms).
             ("LV_USE_BIDI", "1"),
             ("LV_USE_ARABIC_PERSIAN_CHARS", "1"),
-            ("SUPPORT_DISPLAY_HEIGHT_240", "1"),
+            (f"SUPPORT_DISPLAY_HEIGHT_{DISPLAY_HEIGHT}", "1"),
             *(
                 [("LV_USE_SYSMON", "1"), ("LV_USE_PERF_MONITOR", "1")]
                 if os.environ.get("LVGL_PERF_MONITOR", "0") == "1"
