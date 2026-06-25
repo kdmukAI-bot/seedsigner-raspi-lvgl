@@ -2,7 +2,7 @@
 
 ## Context
 
-seedsigner-raspi-lvgl produces a compiled C extension (`seedsigner_lvgl_native.so`)
+seedsigner-raspi-lvgl produces a compiled C extension (`seedsigner_lvgl_screens.so`)
 that renders LVGL-based screens on Raspberry Pi Zero hardware. The SeedSigner Python
 application currently uses pure PIL for all screen rendering. We need a strategy for
 how the compiled module gets installed into and used by the SeedSigner Python codebase,

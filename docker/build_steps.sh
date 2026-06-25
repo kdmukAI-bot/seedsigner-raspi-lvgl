@@ -107,7 +107,12 @@ fi
 source "${VENV_DIR}/bin/activate"
 python -c "import setuptools, pytest" 2>/dev/null || python -m pip install --disable-pip-version-check -q pip setuptools pytest
 
-rm -f "${ROOT_DIR}"/src/seedsigner_lvgl_native*.so
+# The package dir (pyproject: package-dir {"" = "src"}) holds only the built,
+# git-ignored .so, so a fresh checkout has no src/ at all. Create it before the
+# inplace build copies the extension there. Local trees carry src/ from prior
+# builds, which is why a missing src/ only ever surfaced on a clean CI clone.
+mkdir -p "${ROOT_DIR}/src"
+rm -f "${ROOT_DIR}"/src/seedsigner_lvgl_screens*.so
 
 # Force a fresh native extension build so architecture flags are applied deterministically.
 # Build artifacts go to /tmp/build to keep the project tree clean.
@@ -119,7 +124,7 @@ python "${ROOT_DIR}/setup.py" build_ext --inplace --force --parallel "$(nproc)" 
 # Ensure tests import from local src tree.
 PYTHONPATH="${ROOT_DIR}/src" python -m pytest -q -p no:cacheprovider "${ROOT_DIR}/tests/test_native_smoke.py"
 
-ART="$(find "${ROOT_DIR}" -maxdepth 2 -type f -name 'seedsigner_lvgl_native*.so' | sort | tail -n1 || true)"
+ART="$(find "${ROOT_DIR}" -maxdepth 2 -type f -name 'seedsigner_lvgl_screens*.so' | sort | tail -n1 || true)"
 if [[ -z "${ART}" ]]; then
   echo "ERROR: no built extension artifact found" >&2
   exit 6

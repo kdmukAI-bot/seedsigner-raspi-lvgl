@@ -4,9 +4,9 @@ import pytest
 
 def _native_or_skip():
     try:
-        return importlib.import_module("seedsigner_lvgl_native")
+        return importlib.import_module("seedsigner_lvgl_screens")
     except ModuleNotFoundError:
-        pytest.skip("seedsigner_lvgl_native not built/installed in this test environment")
+        pytest.skip("seedsigner_lvgl_screens not built/installed in this test environment")
 
 
 def test_native_module_import_and_queue_shape():
@@ -19,14 +19,19 @@ def test_native_module_import_and_queue_shape():
     cfg = {
         "top_nav": {"title": "Menu"},
         "button_list": ["Compiled Path"],
-        "wait_timeout_ms": 250,
-        "allow_timeout_fallback": True,
     }
     mod.button_list_screen(cfg)
 
-    # Stage E proof: compiled path attempted; fallback is allowed only on timeout.
-    assert mod._debug_last_path() in ("compiled", "fallback_timeout")
+    # Pure builder: the screen is built on the compiled path and returns
+    # immediately. With no input (and no timeout-fallback synthesis), the result
+    # queue stays empty until the unified Python loop pumps LVGL and real input
+    # arrives.
+    assert mod._debug_last_path() == "compiled"
+    assert mod.poll_for_result() is None
 
+    # Queue shape is still exercised via an injected result — the same plumbing the
+    # async callback path uses when real input lands.
+    mod._debug_emit_result("First", 0)
     ev = mod.poll_for_result()
     assert ev is not None
     assert isinstance(ev, tuple) and len(ev) == 3
@@ -40,12 +45,11 @@ def test_passphrase_screen_renders():
     mod.lvgl_init(hor_res=240, ver_res=240)
     mod.clear_result_queue()
 
-    # No timeout fallback exists for this screen; a short wait_timeout_ms lets the
-    # render path run and return without a result rather than blocking forever.
+    # Pure builder: builds the passphrase screen and returns immediately (the
+    # unified Python loop pumps LVGL and polls for the entered text).
     mod.seed_add_passphrase_screen({
         "top_nav": {"title": "Enter Passphrase"},
         "initial_text": "satoshi",
-        "wait_timeout_ms": 250,
     })
     assert mod._debug_last_path() == "compiled"
     mod.lvgl_shutdown()
@@ -74,10 +78,35 @@ def test_validation_errors():
     mod = _native_or_skip()
     mod.lvgl_init(hor_res=240, ver_res=240)
 
+    # top_nav.title is required.
     with pytest.raises(RuntimeError):
         mod.button_list_screen({"top_nav": {}, "button_list": ["A"]})
 
+    # Object-form button entries are valid (label + optional icon/color/right_icon),
+    # but "label" is required and must be a string.
     with pytest.raises(RuntimeError):
-        mod.button_list_screen({"top_nav": {"title": "X"}, "button_list": [{"label": "A"}]})
+        mod.button_list_screen({"top_nav": {"title": "X"}, "button_list": [{"icon": "A"}]})
 
+    mod.lvgl_shutdown()
+
+
+def test_object_form_buttons_accepted():
+    # Per-button object form (parity with Python ButtonOption: label + optional
+    # inline icon, right icon, icon_color, label_color, plus the top-nav icon).
+    # Mirrors the screens-side read_button_list_items() contract; exercises the
+    # validate_cfg object branch and the native parse/build path headlessly.
+    mod = _native_or_skip()
+    mod.lvgl_init(hor_res=240, ver_res=240)
+    mod.clear_result_queue()
+
+    mod.button_list_screen({
+        "top_nav": {"title": "Seed Options", "icon": "", "icon_color": "#ff9900"},
+        "button_list": [
+            "Plain string still works",
+            {"label": "Export Xpub", "icon": ""},
+            {"label": "Scan", "right_icon": ""},
+            {"label": "Discard", "label_color": "#ff0000"},
+        ],
+    })
+    assert mod._debug_last_path() == "compiled"
     mod.lvgl_shutdown()

@@ -32,7 +32,12 @@ SRC = Path("/home/pi/seedsigner-raspi-lvgl/src")
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-import seedsigner_lvgl as lv
+import seedsigner_lvgl_screens as lv
+
+# Font packs deploy beside the .so (see dev-device-deployment.md). The native
+# set_locale takes the dir explicitly now that the seedsigner_lvgl facade — which
+# used to default it to DEFAULT_FONT_DIR — has been removed.
+LANG_PACKS = str(SRC / "lang-packs")
 
 # lvgl_pump cycle (ms) before returning to Python — shorter = snappier Ctrl+C.
 PUMP_MS = 300
@@ -65,10 +70,8 @@ def show_list(title, buttons, *, show_back, show_power):
     cfg = {
         "top_nav": {"title": title, "show_back_button": show_back, "show_power_button": show_power},
         "button_list": buttons,
-        "wait_timeout_ms": 1,            # don't block in C; we pump from Python
-        "allow_timeout_fallback": False,
     }
-    lv.button_list_screen(cfg)
+    lv.button_list_screen(cfg)  # pure builder: returns immediately, we pump from Python
     return pump_until_result()
 
 
@@ -83,7 +86,7 @@ def main() -> int:
         while True:
             # Language menu — always rendered in English so the menu itself is
             # always legible regardless of the previously selected script.
-            lv.set_locale("en")
+            lv.set_locale("en", LANG_PACKS)
             ev = show_list("Language", [row[1] for row in LOCALES],
                            show_back=False, show_power=True)
             if ev[0] == "topnav_power":
@@ -92,7 +95,7 @@ def main() -> int:
                 continue
 
             loc, label, title, buttons = LOCALES[ev[1]]
-            ok = lv.set_locale(loc)      # uses DEFAULT_FONT_DIR (packs ship beside the package)
+            ok = lv.set_locale(loc, LANG_PACKS)  # font packs deployed beside the .so
             print(f"[i18n-test] -> {label.strip()}   set_locale({loc!r})={ok}")
 
             # Demo screen in the chosen locale; loop until BACK returns to the menu.

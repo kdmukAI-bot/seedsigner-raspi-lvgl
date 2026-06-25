@@ -17,11 +17,10 @@ The app and the native module are **separate trees** on the Pi:
 | Path | What it is | Needed at runtime? |
 |---|---|---|
 | `/home/pi/seedsigner/src/` | The SeedSigner Python app (`main.py` + `seedsigner/` package). A plain deployed copy — **not** a git checkout. | yes (this is the cwd `main.py` runs from) |
-| `/home/pi/seedsigner-raspi-lvgl/src/` | The `seedsigner_lvgl` facade package + the compiled `seedsigner_lvgl_native*.so`. | yes (imported by the app) |
+| `/home/pi/seedsigner-raspi-lvgl/src/` | The compiled `seedsigner_lvgl_screens*.so` extension + the `lang-packs/` font packs. | yes (imported by the app) |
 
-The app does `import seedsigner_lvgl`. That facade package (`src/seedsigner_lvgl/`)
-in turn loads the compiled extension `seedsigner_lvgl_native` (the `.so`). **Both**
-must be importable — the `.so` alone is not enough.
+The app does `import seedsigner_lvgl_screens` — the compiled extension (the `.so`)
+directly. There is no Python facade layer; the native module is the public import.
 
 ## How the module gets on `sys.path`: a `.pth` file
 
@@ -36,7 +35,7 @@ in user-site:
 ```
 
 Python reads `*.pth` files at startup and appends each listed directory to
-`sys.path`. So `import seedsigner_lvgl` / `import seedsigner_lvgl_native` resolve
+`sys.path`. So `import seedsigner_lvgl_screens` resolves
 with no environment fiddling. Verify without loading the (hardware-touching)
 extension:
 
@@ -67,10 +66,13 @@ Two independent drops from the host, then run. Neither uses `rsync --delete`
 excluded so device config and the translations submodule gitlink are left alone.
 
 ```bash
-# 1. LVGL module: facade package + freshly cross-compiled .so
+# 1. LVGL module: freshly cross-compiled .so + the font packs.
+#    The .so is the import itself (no facade). lang-packs/ ships beside it — the
+#    native set_locale reads <src>/lang-packs/<locale>/; its source is the
+#    seedsigner-lvgl-screens repo.
 rsync -az --exclude='__pycache__' --exclude='*.pyc' \
-  /home/kdmukai/dev/seedsigner-raspi-lvgl/src/seedsigner_lvgl \
-  /home/kdmukai/dev/seedsigner-raspi-lvgl/src/seedsigner_lvgl_native.cpython-310-arm-linux-gnueabihf.so \
+  /home/kdmukai/dev/seedsigner-raspi-lvgl/src/seedsigner_lvgl_screens.cpython-310-arm-linux-gnueabihf.so \
+  /home/kdmukai/dev/seedsigner-lvgl-screens/lang-packs \
   pi@seedsigner.local:/home/pi/seedsigner-raspi-lvgl/src/
 
 # 2. App code

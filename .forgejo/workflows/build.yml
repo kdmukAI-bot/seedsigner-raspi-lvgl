@@ -62,7 +62,7 @@ jobs:
             bash ./docker/build_steps.sh
 
       - name: Verify artifact
-        run: ls -la src/seedsigner_lvgl_native*.so
+        run: ls -la src/seedsigner_lvgl_screens*.so
 
       # Forgejo artifact upload is best-effort; not all instances support it.
       - name: Upload extension artifact
@@ -70,7 +70,7 @@ jobs:
         if: always()
         with:
           name: build-${{ env.PY_SERIES }}
-          path: src/seedsigner_lvgl_native*.so
+          path: src/seedsigner_lvgl_screens*.so
 
       - name: Upload build logs
         uses: actions/upload-artifact@v3

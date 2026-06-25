@@ -45,7 +45,7 @@ Python binding layer:
 
 ### 3) CPython binding surface
 
-Native extension module `seedsigner_lvgl_native` exposes:
+Native extension module `seedsigner_lvgl_screens` exposes:
 - `lvgl_init(hor_res, ver_res)` / `lvgl_shutdown()`
 - `native_display_init(...)` / `native_display_shutdown()`
 - `button_list_screen(cfg_dict)` — renders screen, runs LVGL loop until result
