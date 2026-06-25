@@ -791,7 +791,20 @@ static void validate_cfg(PyObject *cfg) {
             }
             continue;
         }
-        throw std::runtime_error("button_list entries must be string or array/tuple with string label at index 0");
+        // Object form: { "label": str, "icon"?: str, "icon_color"?: str,
+        // "right_icon"?: str, "label_color"?: str, ... }. The native
+        // read_button_list_items() parser (lvgl-screens) accepts this shape for
+        // per-button icons / colors / checkbox state; only the structural
+        // requirement (a string "label") is enforced here — the optional keys
+        // ride through json.dumps to the shared parser.
+        if (PyDict_Check(it)) {
+            PyObject *label = PyDict_GetItemString(it, "label");
+            if (!label || !PyUnicode_Check(label)) {
+                throw std::runtime_error("button_list object entries require a string \"label\"");
+            }
+            continue;
+        }
+        throw std::runtime_error("button_list entries must be string, array/tuple with string label at index 0, or object with string \"label\"");
     }
 
     // Optional per-screen screensaver policy (view-owned). When present it must be

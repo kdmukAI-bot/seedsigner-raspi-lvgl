@@ -66,6 +66,7 @@ font_sources = [
     # Icons (PUA) + fixed-width Inconsolata keyboard/text-entry font stay bitmap
     # (240px profile — matches the host's SUPPORT_DISPLAY_HEIGHT_240 build).
     "seedsigner_icons_24_4bpp.c",
+    "seedsigner_icons_26_4bpp.c",  # top_nav contextual title icon (gui_constants 240 profile)
     "seedsigner_icons_36_4bpp.c",
     "seedsigner_icons_48_4bpp.c",
     "inconsolata_semibold_24_4bpp.c",

@@ -78,10 +78,35 @@ def test_validation_errors():
     mod = _native_or_skip()
     mod.lvgl_init(hor_res=240, ver_res=240)
 
+    # top_nav.title is required.
     with pytest.raises(RuntimeError):
         mod.button_list_screen({"top_nav": {}, "button_list": ["A"]})
 
+    # Object-form button entries are valid (label + optional icon/color/right_icon),
+    # but "label" is required and must be a string.
     with pytest.raises(RuntimeError):
-        mod.button_list_screen({"top_nav": {"title": "X"}, "button_list": [{"label": "A"}]})
+        mod.button_list_screen({"top_nav": {"title": "X"}, "button_list": [{"icon": "A"}]})
 
+    mod.lvgl_shutdown()
+
+
+def test_object_form_buttons_accepted():
+    # Per-button object form (parity with Python ButtonOption: label + optional
+    # inline icon, right icon, icon_color, label_color, plus the top-nav icon).
+    # Mirrors the screens-side read_button_list_items() contract; exercises the
+    # validate_cfg object branch and the native parse/build path headlessly.
+    mod = _native_or_skip()
+    mod.lvgl_init(hor_res=240, ver_res=240)
+    mod.clear_result_queue()
+
+    mod.button_list_screen({
+        "top_nav": {"title": "Seed Options", "icon": "", "icon_color": "#ff9900"},
+        "button_list": [
+            "Plain string still works",
+            {"label": "Export Xpub", "icon": ""},
+            {"label": "Scan", "right_icon": ""},
+            {"label": "Discard", "label_color": "#ff0000"},
+        ],
+    })
+    assert mod._debug_last_path() == "compiled"
     mod.lvgl_shutdown()
