@@ -107,6 +107,11 @@ fi
 source "${VENV_DIR}/bin/activate"
 python -c "import setuptools, pytest" 2>/dev/null || python -m pip install --disable-pip-version-check -q pip setuptools pytest
 
+# The package dir (pyproject: package-dir {"" = "src"}) holds only the built,
+# git-ignored .so, so a fresh checkout has no src/ at all. Create it before the
+# inplace build copies the extension there. Local trees carry src/ from prior
+# builds, which is why a missing src/ only ever surfaced on a clean CI clone.
+mkdir -p "${ROOT_DIR}/src"
 rm -f "${ROOT_DIR}"/src/seedsigner_lvgl_screens*.so
 
 # Force a fresh native extension build so architecture flags are applied deterministically.
