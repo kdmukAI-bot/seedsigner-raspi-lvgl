@@ -28,6 +28,8 @@ on:
       - 'docker/build_steps.sh'
       - 'setup.py'
       - 'versions.lock.toml'
+      - 'native/**'
+      - 'sources/seedsigner-lvgl-screens'  # submodule pointer bump (new screens)
   pull_request:
     paths:
       - '.github/workflows/build.yml'
@@ -35,6 +37,8 @@ on:
       - 'docker/build_steps.sh'
       - 'setup.py'
       - 'versions.lock.toml'
+      - 'native/**'
+      - 'sources/seedsigner-lvgl-screens'  # submodule pointer bump (new screens)
 
 jobs:
   build-armv6:
