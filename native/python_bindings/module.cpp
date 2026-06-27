@@ -1294,12 +1294,56 @@ static PyObject *py_seed_add_passphrase_screen(PyObject *self, PyObject *args) {
     Py_RETURN_NONE;
 }
 
+static PyObject *py_large_icon_status_screen(PyObject *self, PyObject *args) {
+    (void)self;
+
+    PyObject *cfg = NULL;
+    if (!PyArg_ParseTuple(args, "O", &cfg)) {
+        return NULL;
+    }
+    if (!PyDict_Check(cfg)) {
+        PyErr_SetString(PyExc_RuntimeError, "large_icon_status_screen expects cfg_dict as dict");
+        return NULL;
+    }
+
+    try {
+        // Lenient (no button_list-style validate_cfg): the native screen applies its
+        // status_type defaults for any missing top_nav/button_list/icon fields.
+        require_lvgl_runtime();
+        std::string cfg_json = py_cfg_to_json(cfg);
+        large_icon_status_screen((void *)cfg_json.c_str());
+        s_last_path = "compiled";
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+
+    Py_RETURN_NONE;
+}
+
 static PyObject *py_main_menu_screen(PyObject *self, PyObject *args) {
     (void)self;
-    (void)args;
+
+    // The home menu now localizes its title + 4 button labels, passed as an OPTIONAL cfg
+    // dict (top_nav + button_list); with no cfg the C side uses its English defaults
+    // (RFC 7396 merge-patch).
+    PyObject *cfg = NULL;
+    if (!PyArg_ParseTuple(args, "|O", &cfg)) {
+        return NULL;
+    }
+    if (cfg && cfg != Py_None && !PyDict_Check(cfg)) {
+        PyErr_SetString(PyExc_RuntimeError, "main_menu_screen expects cfg_dict as dict");
+        return NULL;
+    }
+
     try {
         require_lvgl_runtime();
-        main_menu_screen(NULL);
+        if (cfg && cfg != Py_None) {
+            std::string cfg_json = py_cfg_to_json(cfg);
+            main_menu_screen((void *)cfg_json.c_str());
+        } else {
+            main_menu_screen(NULL);
+        }
         s_last_path = "compiled";
     } catch (const std::exception &e) {
         PyErr_SetString(PyExc_RuntimeError, e.what());
@@ -1526,7 +1570,8 @@ static PyMethodDef methods[] = {
     {"unload_locale", py_unload_locale, METH_NOARGS, "Clear loaded locale packs and restore the baked Western floor."},
     {"set_screensaver_timeout", py_set_screensaver_timeout, METH_VARARGS, "set_screensaver_timeout(ms): idle ms before the native screensaver activates (0 disables)."},
     {"button_list_screen", py_button_list_screen, METH_VARARGS, "Build the button list screen (returns immediately; pump + poll for the result)."},
-    {"main_menu_screen", py_main_menu_screen, METH_NOARGS, "Build the main menu screen (2x2 grid); returns immediately."},
+    {"large_icon_status_screen", py_large_icon_status_screen, METH_VARARGS, "Build the large-icon status screen (returns immediately; pump + poll for the result)."},
+    {"main_menu_screen", py_main_menu_screen, METH_VARARGS, "Build the main menu screen (2x2 grid; optional cfg localizes title + labels); returns immediately."},
     {"seed_add_passphrase_screen", py_seed_add_passphrase_screen, METH_VARARGS, "Build the BIP39 passphrase entry screen; result is text_entered or topnav_back."},
     {"screensaver_screen", py_screensaver_screen, METH_NOARGS, "Build the screensaver (bouncing logo); returns immediately. Manual-test helper (the overlay manager owns the screensaver at runtime)."},
     {"clear_result_queue", py_clear_result_queue, METH_NOARGS, "Clear result queue."},
