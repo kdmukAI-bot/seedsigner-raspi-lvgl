@@ -55,6 +55,187 @@ def test_passphrase_screen_renders():
     mod.lvgl_shutdown()
 
 
+def test_keyboard_screen_variants_render():
+    mod = _native_or_skip()
+    mod.lvgl_init(hor_res=240, ver_res=240)
+    mod.clear_result_queue()
+
+    # BIP-85 child index: plain digit grid with an in-grid save button.
+    mod.keyboard_screen({
+        "top_nav": {"title": "BIP-85 Index"},
+        "cols": 5,
+        "keys": ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"],
+        "show_save_button": True,
+    })
+    assert mod._debug_last_path() == "compiled"
+
+    # Dice roll: icon-font glyphs (PUA codepoints) mapped to values, auto-return
+    # after N chars, live per-keystroke title.
+    dice = {
+        "\uf525": "1", "\uf528": "2", "\uf527": "3",
+        "\uf524": "4", "\uf523": "5", "\uf526": "6",
+    }
+    mod.keyboard_screen({
+        "top_nav": {"title": "Dice Roll 1/50"},
+        "cols": 3,
+        "keys": list(dice.keys()),
+        "keys_to_values": dice,
+        "keyboard_font": "icon",
+        "return_after_n_chars": 50,
+        "title_keystroke_template": "Dice Roll {n}/{total}",
+    })
+    assert mod._debug_last_path() == "compiled"
+
+    # cfg must be a dict.
+    with pytest.raises(RuntimeError):
+        mod.keyboard_screen("not a dict")
+
+    mod.lvgl_shutdown()
+
+
+def test_seed_mnemonic_entry_screen_renders():
+    mod = _native_or_skip()
+    mod.lvgl_init(hor_res=240, ver_res=240)
+    mod.clear_result_queue()
+
+    mod.seed_mnemonic_entry_screen({
+        "top_nav": {"title": "Seed Word #3"},
+        "wordlist": ["abandon", "ability", "able", "muffin", "mule", "muscle",
+                     "museum", "mushroom", "music"],
+        "initial_letters": "mus",
+    })
+    assert mod._debug_last_path() == "compiled"
+
+    # wordlist is required — the native side raises without it.
+    with pytest.raises(RuntimeError):
+        mod.seed_mnemonic_entry_screen({"top_nav": {"title": "Seed Word #1"}})
+
+    mod.lvgl_shutdown()
+
+
+def test_qr_display_screen_static_and_animated():
+    mod = _native_or_skip()
+    mod.lvgl_init(hor_res=240, ver_res=240)
+    mod.clear_result_queue()
+
+    # Static SeedQR (numeric mode).
+    mod.qr_display_screen({
+        "qr_data": "0015108016251442000617751481122306221491",
+        "qr_mode": "numeric",
+        "data_encoding": "utf8",
+        "border": 2,
+        "initial_brightness": 62,
+        "show_brightness_tips": True,
+        "brighter_text": "Brighter",
+        "darker_text": "Darker",
+    })
+    assert mod._debug_last_path() == "compiled"
+
+    # No QR screen tip is active in this headless build path.
+    assert mod.qr_display_is_tip_active() in (True, False)
+
+    # Animated: push frames as str (UTF-8) and bytes; both are safe no-ops if the
+    # native ctx isn't live, and must not raise.
+    mod.qr_display_set_frame("B$2P0300OBZWE5H7V3EPWSNR2VJKQMFHZA55FP3WU3KRM6XXAQD5")
+    mod.qr_display_set_frame(b"\x01\xf0\xe3\x2c\xda\x20\x0d\xbb")
+
+    # Wrong frame type is a TypeError.
+    with pytest.raises(TypeError):
+        mod.qr_display_set_frame(123)
+
+    # qr_data is required.
+    with pytest.raises(RuntimeError):
+        mod.qr_display_screen({"qr_mode": "byte"})
+
+    mod.lvgl_shutdown()
+
+
+def test_splash_screen_renders():
+    mod = _native_or_skip()
+    mod.lvgl_init(hor_res=240, ver_res=240)
+    mod.clear_result_queue()
+
+    # Defaults (no cfg) reproduce the English opening splash.
+    mod.splash_screen()
+    assert mod._debug_last_path() == "compiled"
+
+    # Optional cfg merge-patches version + partner band + boot-logo handoff.
+    mod.splash_screen({
+        "version": "0.9.0",
+        "show_partner_logos": True,
+        "sponsor_text": "With support from:",
+        "logo_already_shown": True,
+    })
+    assert mod._debug_last_path() == "compiled"
+
+    # A non-dict cfg is rejected.
+    with pytest.raises(RuntimeError):
+        mod.splash_screen("not a dict")
+
+    mod.lvgl_shutdown()
+
+
+def test_splash_complete_routes_as_button_selected():
+    mod = _native_or_skip()
+    mod.clear_result_queue()
+
+    # SEEDSIGNER_RET_SPLASH_COMPLETE (1101) is a host-handled lifecycle event, not a
+    # Python-routed body button. It surfaces like screensaver dismiss: a
+    # button_selected with index -1, the label identifying it — NOT ("button_selected",
+    # 1101, ...) as a stray default would produce.
+    mod._debug_emit_result("splash_complete", 1101)
+    assert mod.poll_for_result() == ("button_selected", -1, "splash_complete")
+    assert mod.poll_for_result() is None
+
+
+def test_seed_finalize_screen_renders():
+    mod = _native_or_skip()
+    mod.lvgl_init(hor_res=240, ver_res=240)
+    mod.clear_result_queue()
+
+    # Fingerprint readout + bottom button list (Done / BIP-39 Passphrase). Buttons
+    # emit button_selected; cfg requires a "fingerprint" string.
+    mod.seed_finalize_screen({
+        "top_nav": {"title": "Finalize Seed"},
+        "fingerprint": "6a4f2e1b",
+        "fingerprint_label": "fingerprint",
+        "button_list": ["Done", "BIP-39 Passphrase"],
+    })
+    assert mod._debug_last_path() == "compiled"
+
+    # Bare cfg still renders (title/button_list default in the native screen).
+    mod.seed_finalize_screen({"fingerprint": "0abc1234"})
+    assert mod._debug_last_path() == "compiled"
+
+    # fingerprint is required — the native side raises without it.
+    with pytest.raises(RuntimeError):
+        mod.seed_finalize_screen({"top_nav": {"title": "Finalize Seed"}})
+    # cfg must be a dict.
+    with pytest.raises(RuntimeError):
+        mod.seed_finalize_screen("not a dict")
+
+    mod.lvgl_shutdown()
+
+
+def test_loading_screen_renders():
+    mod = _native_or_skip()
+    mod.lvgl_init(hor_res=240, ver_res=240)
+    mod.clear_result_queue()
+
+    # Fire-and-forget pure builder: no result, no poll loop. Defaults (no cfg) and the
+    # optional status text both build; a non-dict cfg is rejected.
+    mod.loading_screen()
+    assert mod._debug_last_path() == "compiled"
+    mod.loading_screen({"text": "Parsing PSBT..."})
+    assert mod._debug_last_path() == "compiled"
+    # It produces no terminal event (would block run_lvgl_screen's poll loop).
+    assert mod.poll_for_result() is None
+    with pytest.raises(RuntimeError):
+        mod.loading_screen("not a dict")
+
+    mod.lvgl_shutdown()
+
+
 def test_callback_driven_topnav_and_ordering():
     mod = _native_or_skip()
     mod.clear_result_queue()

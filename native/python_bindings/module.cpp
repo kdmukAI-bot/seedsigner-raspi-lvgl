@@ -35,6 +35,10 @@ enum result_kind_t {
     RESULT_TOPNAV_BACK = 1,
     RESULT_TOPNAV_POWER = 2,
     RESULT_TEXT_ENTERED = 3,
+    // qr_display_screen reports its final brightness (31..255) on exit via the
+    // on_qr_brightness hook, carried in the index slot so the host can persist
+    // SETTING__QR_BRIGHTNESS. Emitted just before the trailing topnav_back.
+    RESULT_QR_BRIGHTNESS = 4,
 };
 
 typedef struct {
@@ -175,6 +179,8 @@ static const char *kind_to_event_name(result_kind_t kind) {
             return "topnav_power";
         case RESULT_TEXT_ENTERED:
             return "text_entered";
+        case RESULT_QR_BRIGHTNESS:
+            return "qr_brightness";
         case RESULT_BUTTON_SELECTED:
         default:
             return "button_selected";
@@ -200,6 +206,12 @@ extern "C" void seedsigner_lvgl_on_button_selected(uint32_t index, const char *l
             // dismiss as a button_selected with no index (label carries detail).
             queue_push(RESULT_BUTTON_SELECTED, -1, safe_label);
             return;
+        case SEEDSIGNER_RET_SPLASH_COMPLETE:
+            // Opening splash finished/dismissed. Host-handled lifecycle event (not a
+            // Python-routed button): surface it like screensaver dismiss — a
+            // button_selected with no index; the "splash_complete" label identifies it.
+            queue_push(RESULT_BUTTON_SELECTED, -1, safe_label);
+            return;
         default:
             queue_push(RESULT_BUTTON_SELECTED, static_cast<int>(index), safe_label);
             return;
@@ -212,6 +224,14 @@ extern "C" void seedsigner_lvgl_on_button_selected(uint32_t index, const char *l
 // RESULT_LABEL_MAX by queue_push().
 extern "C" void seedsigner_lvgl_on_text_entered(const char *text) {
     queue_push(RESULT_TEXT_ENTERED, -1, text ? text : "");
+}
+
+// QR brightness persistence hook (overrides the weak no-op in seedsigner.cpp).
+// qr_display_screen fires this on exit with its final brightness (31..255) so the
+// host can persist SETTING__QR_BRIGHTNESS. Surfaced as ("qr_brightness", value, "");
+// it lands in the queue just before the screen's trailing topnav_back result.
+extern "C" void seedsigner_lvgl_on_qr_brightness(uint8_t brightness) {
+    queue_push(RESULT_QR_BRIGHTNESS, static_cast<int>(brightness), "");
 }
 
 static void write_text_file(const std::string &path, const std::string &value) {
@@ -1294,6 +1314,179 @@ static PyObject *py_seed_add_passphrase_screen(PyObject *self, PyObject *args) {
     Py_RETURN_NONE;
 }
 
+// Generalized keyboard entry screen. One native function backs several SeedSigner
+// keyboard flows via cfg: BIP-85 child index, custom derivation path, dice-roll and
+// coin-flip entropy (see the keys/keys_to_values/return_after_n_chars/
+// title_keystroke_template contract in seedsigner.cpp). The completed string is
+// delivered as a text_entered result; a top-nav back emits topnav_back.
+static PyObject *py_keyboard_screen(PyObject *self, PyObject *args) {
+    (void)self;
+
+    PyObject *cfg = NULL;
+    if (!PyArg_ParseTuple(args, "O", &cfg)) {
+        return NULL;
+    }
+    if (!PyDict_Check(cfg)) {
+        PyErr_SetString(PyExc_RuntimeError, "keyboard_screen expects cfg_dict as dict");
+        return NULL;
+    }
+
+    try {
+        require_lvgl_runtime();
+        std::string cfg_json = py_cfg_to_json(cfg);
+        keyboard_screen((void *)cfg_json.c_str());
+        s_last_path = "compiled";
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+
+    Py_RETURN_NONE;
+}
+
+// BIP39 seed-word entry screen (autocomplete keyboard over a wordlist). cfg requires
+// a "wordlist" (array of candidate words); optional "initial_letters" /
+// "initial_selected_word" prefill state. The accepted word is delivered as a
+// text_entered result; a top-nav back emits topnav_back.
+static PyObject *py_seed_mnemonic_entry_screen(PyObject *self, PyObject *args) {
+    (void)self;
+
+    PyObject *cfg = NULL;
+    if (!PyArg_ParseTuple(args, "O", &cfg)) {
+        return NULL;
+    }
+    if (!PyDict_Check(cfg)) {
+        PyErr_SetString(PyExc_RuntimeError, "seed_mnemonic_entry_screen expects cfg_dict as dict");
+        return NULL;
+    }
+
+    try {
+        require_lvgl_runtime();
+        std::string cfg_json = py_cfg_to_json(cfg);
+        seed_mnemonic_entry_screen((void *)cfg_json.c_str());
+        s_last_path = "compiled";
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+
+    Py_RETURN_NONE;
+}
+
+// Finalize-seed screen shown after a seed loads: a fingerprint readout above a
+// bottom-pinned button list (Done / BIP-39 Passphrase, no back button). cfg requires
+// a "fingerprint" string; optional "fingerprint_label", "top_nav", and "button_list"
+// (defaults to ["Done"]). Structurally a button_list_screen — buttons emit
+// button_selected (Done=0, ...); an optional power button emits topnav_power.
+static PyObject *py_seed_finalize_screen(PyObject *self, PyObject *args) {
+    (void)self;
+
+    PyObject *cfg = NULL;
+    if (!PyArg_ParseTuple(args, "O", &cfg)) {
+        return NULL;
+    }
+    if (!PyDict_Check(cfg)) {
+        PyErr_SetString(PyExc_RuntimeError, "seed_finalize_screen expects cfg_dict as dict");
+        return NULL;
+    }
+
+    try {
+        // Lenient (no button_list-style validate_cfg): the native screen applies its
+        // own defaults (title, ["Done"]) and raises if the required fingerprint is absent.
+        require_lvgl_runtime();
+        std::string cfg_json = py_cfg_to_json(cfg);
+        seed_finalize_screen((void *)cfg_json.c_str());
+        s_last_path = "compiled";
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+
+    Py_RETURN_NONE;
+}
+
+// Native QR display screen (static and host-driven animated). cfg requires "qr_data"
+// plus qr_mode/data_encoding/border/brightness options (see qr_display_screen in
+// seedsigner.cpp). For a STATIC QR the host builds once and does nothing further. For
+// an ANIMATED QR the host pushes each frame with qr_display_set_frame() and honors
+// qr_display_is_tip_active() (hold while true). On exit the screen emits a
+// qr_brightness result (final brightness) followed by topnav_back.
+static PyObject *py_qr_display_screen(PyObject *self, PyObject *args) {
+    (void)self;
+
+    PyObject *cfg = NULL;
+    if (!PyArg_ParseTuple(args, "O", &cfg)) {
+        return NULL;
+    }
+    if (!PyDict_Check(cfg)) {
+        PyErr_SetString(PyExc_RuntimeError, "qr_display_screen expects cfg_dict as dict");
+        return NULL;
+    }
+
+    try {
+        require_lvgl_runtime();
+        std::string cfg_json = py_cfg_to_json(cfg);
+        qr_display_screen((void *)cfg_json.c_str());
+        s_last_path = "compiled";
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+
+    Py_RETURN_NONE;
+}
+
+// Push the next animated-QR frame into the live qr_display_screen. Accepts bytes
+// (raw payload, e.g. a CompactSeedQR chunk) or str (UTF-8 encoded, e.g. a BBQr /
+// UR fragment). Re-encodes + repaints in place using the screen's qr_mode. Safe
+// no-op on the native side when no QR screen is active.
+static PyObject *py_qr_display_set_frame(PyObject *self, PyObject *args) {
+    (void)self;
+
+    PyObject *obj = NULL;
+    if (!PyArg_ParseTuple(args, "O", &obj)) {
+        return NULL;
+    }
+
+    char *data = NULL;
+    Py_ssize_t len = 0;
+    if (PyBytes_Check(obj)) {
+        if (PyBytes_AsStringAndSize(obj, &data, &len) < 0) {
+            return NULL;
+        }
+    } else if (PyUnicode_Check(obj)) {
+        data = const_cast<char *>(PyUnicode_AsUTF8AndSize(obj, &len));
+        if (!data) {
+            return NULL;
+        }
+    } else {
+        PyErr_SetString(PyExc_TypeError, "qr_display_set_frame expects bytes or str");
+        return NULL;
+    }
+
+    try {
+        require_lvgl_runtime();
+        qr_display_set_frame((const void *)data, static_cast<size_t>(len));
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+
+    Py_RETURN_NONE;
+}
+
+// True while the QR screen's brightness tip/panel is showing. The host's animation
+// frame driver polls this and holds (does not advance frames) while true, then
+// restarts the sequence from frame 0 when it clears. False when no QR screen active.
+static PyObject *py_qr_display_is_tip_active(PyObject *self, PyObject *args) {
+    (void)self;
+    (void)args;
+    if (qr_display_is_tip_active()) {
+        Py_RETURN_TRUE;
+    }
+    Py_RETURN_FALSE;
+}
+
 static PyObject *py_large_icon_status_screen(PyObject *self, PyObject *args) {
     (void)self;
 
@@ -1343,6 +1536,82 @@ static PyObject *py_main_menu_screen(PyObject *self, PyObject *args) {
             main_menu_screen((void *)cfg_json.c_str());
         } else {
             main_menu_screen(NULL);
+        }
+        s_last_path = "compiled";
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+
+    Py_RETURN_NONE;
+}
+
+// Opening splash screen (parity with Python OpeningSplashScreen). Optional cfg dict
+// (RFC 7396 merge-patch over English defaults) localizes version/sponsor text and
+// toggles partner logos / boot-logo handoff. Pure builder: the timed logo reveal is
+// driven by lv_anim + lv_timer; on completion (or dismissal) it emits a
+// button_selected(-1, "splash_complete") result the host loop watches for.
+static PyObject *py_splash_screen(PyObject *self, PyObject *args) {
+    (void)self;
+
+    PyObject *cfg = NULL;
+    if (!PyArg_ParseTuple(args, "|O", &cfg)) {
+        return NULL;
+    }
+    if (cfg && cfg != Py_None && !PyDict_Check(cfg)) {
+        PyErr_SetString(PyExc_RuntimeError, "splash_screen expects cfg_dict as dict");
+        return NULL;
+    }
+
+    try {
+        require_lvgl_runtime();
+        if (cfg && cfg != Py_None) {
+            std::string cfg_json = py_cfg_to_json(cfg);
+            splash_screen((void *)cfg_json.c_str());
+        } else {
+            splash_screen(NULL);
+        }
+        s_last_path = "compiled";
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+
+    Py_RETURN_NONE;
+}
+
+// Loading spinner (LVGL port of Python's LoadingScreenThread), shown while the host
+// runs a long blocking task (seed gen, PSBT signing). Optional cfg: {"text": "..."}.
+// Pure builder, fire-and-forget: it takes no input and returns no result — the comet
+// self-animates on an lv_timer and is torn down when the next screen loads. There is
+// deliberately no stop/hide call (matching the ESP32 binding).
+//
+// Pi Zero caveat (blended display): unlike the ESP32 — where a dedicated display task
+// keeps ticking lv_timer_handler so the comet spins with zero host involvement — the Pi
+// has no background pump; LVGL only advances when the host calls lvgl_pump. If the host
+// builds this and then blocks in its task, nothing pumps and the comet freezes. So on
+// CPython/Pi the host must keep pumping (a background pump thread) for the duration, or
+// stay on the PIL LoadingScreenThread until the display cutover. See the host-side note
+// seedsigner/docs/architecture/loading-screen-native-integration.md.
+static PyObject *py_loading_screen(PyObject *self, PyObject *args) {
+    (void)self;
+
+    PyObject *cfg = NULL;
+    if (!PyArg_ParseTuple(args, "|O", &cfg)) {
+        return NULL;
+    }
+    if (cfg && cfg != Py_None && !PyDict_Check(cfg)) {
+        PyErr_SetString(PyExc_RuntimeError, "loading_screen expects cfg_dict as dict");
+        return NULL;
+    }
+
+    try {
+        require_lvgl_runtime();
+        if (cfg && cfg != Py_None) {
+            std::string cfg_json = py_cfg_to_json(cfg);
+            loading_screen((void *)cfg_json.c_str());
+        } else {
+            loading_screen(NULL);
         }
         s_last_path = "compiled";
     } catch (const std::exception &e) {
@@ -1573,6 +1842,14 @@ static PyMethodDef methods[] = {
     {"large_icon_status_screen", py_large_icon_status_screen, METH_VARARGS, "Build the large-icon status screen (returns immediately; pump + poll for the result)."},
     {"main_menu_screen", py_main_menu_screen, METH_VARARGS, "Build the main menu screen (2x2 grid; optional cfg localizes title + labels); returns immediately."},
     {"seed_add_passphrase_screen", py_seed_add_passphrase_screen, METH_VARARGS, "Build the BIP39 passphrase entry screen; result is text_entered or topnav_back."},
+    {"keyboard_screen", py_keyboard_screen, METH_VARARGS, "Build the generalized keyboard entry screen (BIP-85 index / derivation path / dice / coin flip); result is text_entered or topnav_back."},
+    {"seed_mnemonic_entry_screen", py_seed_mnemonic_entry_screen, METH_VARARGS, "Build the BIP39 seed-word entry screen (autocomplete over cfg['wordlist']); result is text_entered (chosen word) or topnav_back."},
+    {"seed_finalize_screen", py_seed_finalize_screen, METH_VARARGS, "Build the finalize-seed screen (fingerprint readout + bottom button list; cfg requires 'fingerprint'); result is button_selected."},
+    {"qr_display_screen", py_qr_display_screen, METH_VARARGS, "Build the native QR display screen (static or animated); result is qr_brightness then topnav_back on exit."},
+    {"qr_display_set_frame", py_qr_display_set_frame, METH_VARARGS, "Push the next animated-QR frame (bytes or str) into the live qr_display_screen."},
+    {"qr_display_is_tip_active", py_qr_display_is_tip_active, METH_NOARGS, "True while the QR brightness tip/panel is up; the animation driver holds while true."},
+    {"splash_screen", py_splash_screen, METH_VARARGS, "Build the opening splash (optional cfg localizes version/sponsor + toggles partner logos); emits button_selected(-1, 'splash_complete') on completion."},
+    {"loading_screen", py_loading_screen, METH_VARARGS, "Build the self-animating loading spinner (optional cfg {'text':...}); pure builder, fire-and-forget — no result, torn down when the next screen loads."},
     {"screensaver_screen", py_screensaver_screen, METH_NOARGS, "Build the screensaver (bouncing logo); returns immediately. Manual-test helper (the overlay manager owns the screensaver at runtime)."},
     {"clear_result_queue", py_clear_result_queue, METH_NOARGS, "Clear result queue."},
     {"poll_for_result", py_poll_for_result, METH_NOARGS, "Poll next result tuple or None."},
