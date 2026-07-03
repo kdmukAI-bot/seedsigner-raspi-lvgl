@@ -69,7 +69,11 @@ font_sources = [
     "seedsigner_icons_26_4bpp.c",  # top_nav contextual title icon (gui_constants 240 profile)
     "seedsigner_icons_36_4bpp.c",
     "seedsigner_icons_48_4bpp.c",
-    "inconsolata_semibold_24_4bpp.c",
+    "inconsolata_semibold_24_4bpp.c",  # keyboard/text-entry = 24px
+    # Seed-word candidate font for seed_mnemonic_entry_screen = 22px
+    # (button_font_size + 4). Referenced by the 240 profile in gui_constants.cpp;
+    # without it the .so fails to dlopen (undefined inconsolata_semibold_22_4bpp).
+    "inconsolata_semibold_22_4bpp.c",
 ]
 
 font_paths = [str(SEEDSIGNER_DIR / "fonts" / f) for f in font_sources]
@@ -97,11 +101,14 @@ if DISPLAY_HEIGHT not in _LOGO_SUFFIX_BY_HEIGHT:
     )
 _logo_suffix = _LOGO_SUFFIX_BY_HEIGHT[DISPLAY_HEIGHT]
 
-# Base SeedSigner wordmark (screensaver + splash) + HRF partner logo (splash),
-# for the active height only.
+# Base SeedSigner wordmark (screensaver + splash) + HRF partner logo (splash) +
+# Bitcoin logo (loading_screen spinner), for the active height only. Each is
+# #ifdef-gated in gui_constants.cpp on SUPPORT_DISPLAY_HEIGHT_<N>, so only the
+# active profile's .c must be compiled in (missing symbols fail at dlopen).
 logo_sources = [
     str(SEEDSIGNER_DIR / "images" / f"seedsigner_logo_img{_logo_suffix}.c"),
     str(SEEDSIGNER_DIR / "images" / f"hrf_logo_img{_logo_suffix}.c"),
+    str(SEEDSIGNER_DIR / "images" / f"btc_logo_img{_logo_suffix}.c"),
 ]
 
 cross_build = os.environ.get("CROSS_BUILD", "0") == "1"
@@ -151,6 +158,16 @@ ext_modules = [
             str(SEEDSIGNER_DIR / "input_profile.cpp"),
             str(SEEDSIGNER_DIR / "navigation.cpp"),
             str(SEEDSIGNER_DIR / "seedsigner.cpp"),
+            # Shared LVGL keyboard/text-entry mechanics (kb_* helpers) extracted from
+            # the passphrase keyboard; keyboard_screen + seed_mnemonic_entry_screen +
+            # seed_add_passphrase_screen all link against it.
+            str(SEEDSIGNER_DIR / "keyboard_core.cpp"),
+            # Portable camera live-preview OVERLAY renderer (pure LVGL widgets, no
+            # camera driver). We do not bind camera_preview_overlay_screen to Python
+            # (the camera capture pipeline is out of scope for the Pi extension), but
+            # seedsigner.cpp references camera_preview_overlay_create()/_destroy(), so
+            # this must be compiled in for the .so to dlopen.
+            str(SEEDSIGNER_DIR / "camera_preview_overlay.cpp"),
             str(SEEDSIGNER_DIR / "overlay_manager.cpp"),  # native screensaver idle-watch dispatcher
             # i18n / font-pack layer (shared, host-agnostic). The host plugs into
             # ss_load_locale() via a filesystem pack-provider (see module.cpp).
@@ -183,6 +200,12 @@ ext_modules = [
             # shaping. Both must match the font packs (subset to the shaper's forms).
             ("LV_USE_BIDI", "1"),
             ("LV_USE_ARABIC_PERSIAN_CHARS", "1"),
+            # Native QR rendering (qr_display_screen). seedsigner.cpp calls the
+            # LVGL-bundled Nayuki qrcodegen directly (not the lv_qrcode widget) to
+            # control ECC/mode/quiet-zone; both qrcodegen.c and lv_qrcode.c are
+            # already picked up by the LVGL src glob, so only the flag is needed.
+            # Without it the screen compiles to a blank stub (#if !LV_USE_QRCODE).
+            ("LV_USE_QRCODE", "1"),
             (f"SUPPORT_DISPLAY_HEIGHT_{DISPLAY_HEIGHT}", "1"),
             *(
                 [("LV_USE_SYSMON", "1"), ("LV_USE_PERF_MONITOR", "1")]
