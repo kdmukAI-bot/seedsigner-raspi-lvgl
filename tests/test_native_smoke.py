@@ -291,3 +291,50 @@ def test_object_form_buttons_accepted():
     })
     assert mod._debug_last_path() == "compiled"
     mod.lvgl_shutdown()
+
+
+def test_locale_pack_discovery_defensive():
+    # Discovery over a directory that does not exist is a no-op: an absent packs
+    # partition means "no packs", never an error. discover_locale_packs registers
+    # nothing (needs no LVGL runtime); list_available_locales returns []. Both take
+    # the packs dir explicitly (default "lang-packs").
+    mod = _native_or_skip()
+
+    assert mod.discover_locale_packs("/nonexistent/packs/dir") == 0
+
+    # list_available_locales reads the active display profile, so it requires the
+    # runtime — before lvgl_init it raises rather than abort()ing the process.
+    with pytest.raises(RuntimeError):
+        mod.list_available_locales("/nonexistent/packs/dir")
+
+    mod.lvgl_init(hor_res=240, ver_res=240)
+    assert mod.list_available_locales("/nonexistent/packs/dir") == []
+    mod.lvgl_shutdown()
+
+
+def test_locale_picker_screen_renders():
+    # Live-text rows only (no "image" key ⇒ no endonym-image provider fetch), so the
+    # picker builds from the baked floor alone — Español's accented glyphs are all
+    # covered. Exercises the cfg→JSON→locale_picker_screen path headlessly.
+    mod = _native_or_skip()
+    mod.lvgl_init(hor_res=240, ver_res=240)
+    mod.clear_result_queue()
+
+    mod.locale_picker_screen({
+        "top_nav": {"title": "Language", "show_back_button": True},
+        "active_locale": "en",
+        "rows": [
+            {"locale": "en", "english": "English", "native": "English"},
+            {"locale": "es", "english": "Spanish", "native": "Español"},
+        ],
+    })
+    assert mod._debug_last_path() == "compiled"
+
+    # "rows" is required — the native screen raises without it.
+    with pytest.raises(RuntimeError):
+        mod.locale_picker_screen({"top_nav": {"title": "Language"}})
+    # cfg must be a dict.
+    with pytest.raises(RuntimeError):
+        mod.locale_picker_screen("not a dict")
+
+    mod.lvgl_shutdown()
