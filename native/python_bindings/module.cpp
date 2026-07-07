@@ -5,7 +5,8 @@
 #include "seedsigner.h"
 #include "gui_constants.h"
 #include "input_profile.h"
-#include "locale_loader.h"  // ss_load_locale / ss_unload_locale (i18n font packs)
+#include "locale_loader.h"  // ss_load_locale / ss_unload_locale + ss_register_pack_manifest (i18n font packs)
+#include "locale_picker.h"  // locale_picker_set_image_provider (endonym-image rows)
 #include "overlay_manager.h"  // native screensaver idle-watch dispatcher
 
 #include <chrono>
@@ -19,10 +20,14 @@
 #include <fstream>
 #include <vector>
 
+#include <nlohmann/json.hpp>  // manifest parse for list_available_locales
+
+#include <dirent.h>
 #include <fcntl.h>
 #include <linux/spi/spidev.h>
 #include <linux/gpio.h>
 #include <sys/ioctl.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #define RESULT_QUEUE_CAP 64
@@ -1804,6 +1809,234 @@ static PyObject *py_unload_locale(PyObject *self, PyObject *args) {
     Py_RETURN_NONE;
 }
 
+// --- Language-pack discovery (SD / packs partition) -----------------------
+// Packs live at <font_dir>/<locale>/ — the exact layout set_locale reads through
+// fs_pack_provider. Each pack ships a self-describing manifest.json. On the Pi the
+// packs live on a user-writable, cross-platform FAT/exFAT volume, so discovery
+// treats every directory entry as hostile input: desktop-OS metadata is skipped,
+// a half-copied or malformed pack is silently omitted, and one bad manifest never
+// aborts the scan (ss_register_pack_manifest itself fails closed on bad JSON).
+
+// True for directory names that are never language packs — dotfiles (covers the
+// macOS junk: .DS_Store, ._* AppleDouble, .Spotlight-V100, .Trashes, .fseventsd —
+// and "."/".."), plus the Windows metadata dirs. A real locale code never starts
+// with a dot.
+static bool is_junk_pack_dir(const char *name) {
+    if (!name || name[0] == '\0') return true;
+    if (name[0] == '.') return true;
+    if (std::strcmp(name, "System Volume Information") == 0) return true;
+    if (std::strcmp(name, "$RECYCLE.BIN") == 0) return true;
+    if (std::strcmp(name, "found.000") == 0) return true;  // chkdsk recovery
+    return false;
+}
+
+// Immediate, non-junk subdirectory names of `dir`. Returns false only if `dir`
+// itself can't be opened — an absent packs partition means "no packs", not an
+// error. d_type is unreliable on FAT/exFAT (often DT_UNKNOWN), so stat() decides.
+static bool list_pack_dirs(const std::string &dir, std::vector<std::string> &out) {
+    DIR *d = opendir(dir.c_str());
+    if (!d) return false;
+    struct dirent *ent;
+    while ((ent = readdir(d)) != nullptr) {
+        if (is_junk_pack_dir(ent->d_name)) continue;
+        std::string sub = dir + "/" + ent->d_name;
+        struct stat st;
+        if (stat(sub.c_str(), &st) != 0) continue;   // vanished mid-scan / unreadable
+        if (!S_ISDIR(st.st_mode)) continue;
+        out.push_back(ent->d_name);
+    }
+    closedir(d);
+    return true;
+}
+
+// Read a whole (small) file into `out`. False on any open failure — a missing or
+// half-copied manifest.json is a skip, not a crash.
+static bool read_file_string(const std::string &path, std::string &out) {
+    std::ifstream in(path, std::ios::binary);
+    if (!in) return false;
+    out.assign((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    return true;
+}
+
+// discover_locale_packs(font_dir="lang-packs") -> int
+//
+// Enumerate <font_dir>/<locale>/manifest.json and register each pack with the
+// shared loader so ss_load_locale() / set_locale() work for a locale NOT compiled
+// in (the "drop a pack on the card, no rebuild" path). Clears any prior runtime
+// registrations first, so it doubles as a rescan on card insert. Returns the count
+// registered. Never raises on bad packs (they are skipped); registration is pure
+// data, so no live LVGL runtime is required.
+static PyObject *py_discover_locale_packs(PyObject *self, PyObject *args) {
+    (void)self;
+    const char *font_dir = "lang-packs";
+    if (!PyArg_ParseTuple(args, "|s", &font_dir)) {
+        return NULL;
+    }
+
+    ss_clear_pack_manifests();
+
+    std::string base = font_dir;
+    std::vector<std::string> dirs;
+    list_pack_dirs(base, dirs);
+
+    long count = 0;
+    for (const std::string &name : dirs) {
+        std::string bytes;
+        if (!read_file_string(base + "/" + name + "/manifest.json", bytes)) {
+            continue;  // no manifest (not a pack) / half-copied
+        }
+        if (ss_register_pack_manifest(bytes.data(), bytes.size())) {
+            count++;
+        }
+    }
+    return PyLong_FromLong(count);
+}
+
+// list_available_locales(font_dir="lang-packs") -> list[dict]
+//
+// One dict per pack present under <font_dir>, for the seedsigner app to assemble
+// the locale-picker cfg from (unioned with the baked-Latin locales it knows from
+// its own .mo catalogs). Each dict:
+//   {"code": "<locale>",              # what you pass to set_locale()
+//    "endonym": "<native name>"|None, # from the manifest
+//    "image": "endonym_<h>.bin"|None, # pre-rendered native-script image for the
+//                                     # ACTIVE display height, if the pack ships one
+//    "has_image": bool}               # True => render the native name as that image
+//                                     # (non-Latin script); False => live text.
+// Pure read: it parses manifests but does NOT register them — call
+// discover_locale_packs() for that. Malformed/half-copied packs are skipped.
+static void dict_set_str(PyObject *d, const char *key, const std::string &val) {
+    PyObject *v = PyUnicode_FromString(val.c_str());
+    PyDict_SetItemString(d, key, v);
+    Py_DECREF(v);
+}
+
+static void dict_set_str_or_none(PyObject *d, const char *key, const std::string &val) {
+    if (val.empty()) {
+        PyDict_SetItemString(d, key, Py_None);  // borrows; SetItemString increfs
+        return;
+    }
+    dict_set_str(d, key, val);
+}
+
+static PyObject *py_list_available_locales(PyObject *self, PyObject *args) {
+    (void)self;
+    const char *font_dir = "lang-packs";
+    if (!PyArg_ParseTuple(args, "|s", &font_dir)) {
+        return NULL;
+    }
+
+    // active_profile() (below) aborts if no display profile is set, and a profile
+    // is only installed by lvgl_init()/set_resolution(). Gate on the runtime so a
+    // premature call raises a catchable error instead of abort()ing the process.
+    try {
+        require_lvgl_runtime();
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+
+    // Endonym images are pre-rendered per display height; report the one matching
+    // the active profile.
+    const int height = active_profile().height;
+
+    std::string base = font_dir;
+    std::vector<std::string> dirs;
+    list_pack_dirs(base, dirs);
+
+    PyObject *result = PyList_New(0);
+    if (!result) return NULL;
+
+    for (const std::string &name : dirs) {
+        std::string bytes;
+        if (!read_file_string(base + "/" + name + "/manifest.json", bytes)) {
+            continue;
+        }
+
+        nlohmann::json m;
+        try {
+            m = nlohmann::json::parse(bytes);
+        } catch (...) {
+            continue;  // malformed manifest -> skip (fail closed)
+        }
+        if (!m.is_object()) continue;
+
+        const std::string code = m.value("locale", std::string());
+        if (code.empty()) continue;  // a pack with no locale is unusable
+        const std::string endonym = m.value("endonym", std::string());
+
+        std::string image_file;
+        if (height > 0 && m.contains("endonym_images") && m["endonym_images"].is_object()) {
+            const nlohmann::json &imgs = m["endonym_images"];
+            auto it = imgs.find(std::to_string(height));
+            if (it != imgs.end() && it->is_object()) {
+                image_file = it->value("file", std::string());
+            }
+        }
+
+        PyObject *entry = PyDict_New();
+        if (!entry) { Py_DECREF(result); return NULL; }
+        dict_set_str(entry, "code", code);
+        dict_set_str_or_none(entry, "endonym", endonym);
+        dict_set_str_or_none(entry, "image", image_file);
+        PyObject *has = PyBool_FromLong(image_file.empty() ? 0 : 1);
+        PyDict_SetItemString(entry, "has_image", has);
+        Py_DECREF(has);
+
+        PyList_Append(result, entry);
+        Py_DECREF(entry);
+    }
+    return result;
+}
+
+// locale_picker_screen(cfg) -> None
+//
+// The language-selection screen. Each row is "English | native"; the native name
+// is live text (Latin, baked floor) or a pre-rendered endonym image for non-Latin
+// scripts (a row whose cfg carries "image"). Those image bytes are fetched through
+// the SAME filesystem pack provider set_locale uses — it serves
+// <font_dir>/<locale>/endonym_<h>.bin verbatim. font_dir comes from the optional
+// top-level cfg "font_dir" key (default "lang-packs", matching set_locale).
+// Selection fires the standard button_selected(row_index) result — the host maps
+// the index back to the locale it placed there. Poll for the result like
+// button_list_screen.
+static PyObject *py_locale_picker_screen(PyObject *self, PyObject *args) {
+    (void)self;
+
+    PyObject *cfg = NULL;
+    if (!PyArg_ParseTuple(args, "O", &cfg)) {
+        return NULL;
+    }
+    if (!PyDict_Check(cfg)) {
+        PyErr_SetString(PyExc_RuntimeError, "locale_picker_screen expects cfg_dict as dict");
+        return NULL;
+    }
+
+    try {
+        require_lvgl_runtime();
+
+        // Point the picker's endonym-image provider at the filesystem pack store —
+        // the exact seam ss_load_locale uses. A function-local static ctx outlives
+        // the build call; the picker parses + copies each image during the build, so
+        // the provider bytes need only be valid across this call (like ss_load_locale).
+        static FsPackCtx picker_ctx;
+        PyObject *fd = PyDict_GetItemString(cfg, "font_dir");  // borrowed
+        picker_ctx.font_dir = (fd && PyUnicode_Check(fd)) ? PyUnicode_AsUTF8(fd) : "lang-packs";
+        locale_picker_set_image_provider(fs_pack_provider, &picker_ctx);
+
+        std::string cfg_json = py_cfg_to_json(cfg);
+        // locale_picker_screen() binds navigation itself (nav_bind), same as
+        // button_list_screen — do not attach a parallel binding-layer group here.
+        locale_picker_screen((void *)cfg_json.c_str());
+        s_last_path = "compiled";
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+
+    Py_RETURN_NONE;
+}
+
 // set_screensaver_timeout(ms) -> None
 //
 // Idle time (ms) before the native overlay manager activates the screensaver;
@@ -1837,6 +2070,9 @@ static PyMethodDef methods[] = {
     {"set_flush_callback", py_set_flush_callback, METH_VARARGS, "Set display flush callback(area, bytes)."},
     {"set_locale", py_set_locale, METH_VARARGS, "set_locale(locale, font_dir='lang-packs'): load locale font packs from <font_dir>/<locale>/. Returns True on success, False if a pack is missing (falls back to baked English)."},
     {"unload_locale", py_unload_locale, METH_NOARGS, "Clear loaded locale packs and restore the baked Western floor."},
+    {"discover_locale_packs", py_discover_locale_packs, METH_VARARGS, "discover_locale_packs(font_dir='lang-packs'): (re)scan <font_dir>/<locale>/manifest.json and register each pack so set_locale works for not-compiled-in locales. Returns count registered. Skips desktop-OS junk and bad/half-copied packs."},
+    {"list_available_locales", py_list_available_locales, METH_VARARGS, "list_available_locales(font_dir='lang-packs'): list of {code, endonym, image, has_image} for each pack present under <font_dir>, for assembling the locale picker cfg."},
+    {"locale_picker_screen", py_locale_picker_screen, METH_VARARGS, "Build the language-selection picker (rows carry live-text or pre-rendered endonym images; result is button_selected(index)). cfg may set 'font_dir' (default 'lang-packs')."},
     {"set_screensaver_timeout", py_set_screensaver_timeout, METH_VARARGS, "set_screensaver_timeout(ms): idle ms before the native screensaver activates (0 disables)."},
     {"button_list_screen", py_button_list_screen, METH_VARARGS, "Build the button list screen (returns immediately; pump + poll for the result)."},
     {"large_icon_status_screen", py_large_icon_status_screen, METH_VARARGS, "Build the large-icon status screen (returns immediately; pump + poll for the result)."},

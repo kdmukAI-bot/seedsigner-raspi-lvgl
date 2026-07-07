@@ -168,6 +168,11 @@ ext_modules = [
             # seedsigner.cpp references camera_preview_overlay_create()/_destroy(), so
             # this must be compiled in for the .so to dlopen.
             str(SEEDSIGNER_DIR / "camera_preview_overlay.cpp"),
+            # Sibling image-entropy capture overlay. Likewise not bound to Python (the
+            # camera pipeline is out of scope for the Pi extension), but seedsigner.cpp's
+            # camera_entropy_overlay_screen() calls camera_entropy_overlay_create()/
+            # _destroy() unconditionally, so it must be compiled in for the .so to dlopen.
+            str(SEEDSIGNER_DIR / "camera_entropy_overlay.cpp"),
             str(SEEDSIGNER_DIR / "overlay_manager.cpp"),  # native screensaver idle-watch dispatcher
             # i18n / font-pack layer (shared, host-agnostic). The host plugs into
             # ss_load_locale() via a filesystem pack-provider (see module.cpp).
@@ -176,6 +181,11 @@ ext_modules = [
             str(SEEDSIGNER_DIR / "locale_loader.cpp"),    # ss_load_locale orchestration
             str(SEEDSIGNER_DIR / "glyph_runs.cpp"),       # complex-script pre-shaped runs
             str(SEEDSIGNER_DIR / "stb_glyph_metrics.c"),  # glyph boxes for run rendering
+            # locale_picker_screen's endonym-image rows: parses the SSA8 A8 blobs and
+            # paints them recolored to each row's live text color. seedsigner.cpp's
+            # locale_picker_screen() calls locale_picker_attach_endonym(), so this must
+            # be compiled in for the .so to dlopen.
+            str(SEEDSIGNER_DIR / "locale_picker.cpp"),
             *logo_sources,
             *font_paths,
             *lvgl_sources,
