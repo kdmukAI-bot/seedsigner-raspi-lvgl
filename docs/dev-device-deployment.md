@@ -86,6 +86,9 @@ The `.so` filename encodes the target ABI: `cpython-310-arm-linux-gnueabihf`
 
 ## Language packs
 
+For the runtime model (manifest-driven fonts, the picker, where translated text comes from),
+see [`language-support.md`](language-support.md). This section covers deployment only.
+
 The deploy **points only at the app**: it rsyncs the app's already-bundled payload
 `$SS_APP_DIR/src/lang-packs` straight to the device. This repo **does not know the pack
 repo, does not build packs, and does not branch on signed-vs-dev** — whatever the app
