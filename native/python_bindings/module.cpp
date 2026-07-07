@@ -1492,6 +1492,15 @@ static PyObject *py_qr_display_is_tip_active(PyObject *self, PyObject *args) {
     Py_RETURN_FALSE;
 }
 
+// Large-icon status screen: a hero icon + headline + body over an optional bottom
+// button list. cfg["status_type"] selects the preset icon+color ("success", "warning",
+// "dire_warning", "error") OR "custom" — where the CALLER supplies the hero glyph and
+// color via cfg["icon"] (a raw glyph string, same convention as button/top-nav icons)
+// and cfg["icon_color"] (hex). The custom mode is what powers PSBTFinalize's SIGN prompt
+// and the microSD notification without a bespoke entry point. On the Pi the hero glyph
+// renders in the baked 48px seedsigner icon font (PUA 0xE900-0xE923), which includes
+// SIGN (0xe921) and MICROSD (0xe91f); a glyph outside that range renders as tofu (see
+// docs/knowledge/custom-large-icon-glyph-range.md).
 static PyObject *py_large_icon_status_screen(PyObject *self, PyObject *args) {
     (void)self;
 
@@ -1506,7 +1515,8 @@ static PyObject *py_large_icon_status_screen(PyObject *self, PyObject *args) {
 
     try {
         // Lenient (no button_list-style validate_cfg): the native screen applies its
-        // status_type defaults for any missing top_nav/button_list/icon fields.
+        // status_type defaults for any missing top_nav/button_list/icon fields, and for
+        // status_type "custom" reads the caller-supplied icon glyph + icon_color.
         require_lvgl_runtime();
         std::string cfg_json = py_cfg_to_json(cfg);
         large_icon_status_screen((void *)cfg_json.c_str());
@@ -1618,6 +1628,138 @@ static PyObject *py_loading_screen(PyObject *self, PyObject *args) {
         } else {
             loading_screen(NULL);
         }
+        s_last_path = "compiled";
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+
+    Py_RETURN_NONE;
+}
+
+// --- PSBT transaction-review screens --------------------------------------
+// The four native screens SeedSigner's PSBT-review flow walks through, each a pure
+// builder that takes a required cfg dict and emits button_selected / topnav_back like
+// the other button-list screens. They follow the same host-formats / C-renders split
+// as seed_finalize/large_icon_status: the host owns all i18n + number/address
+// formatting (btc_amount strings, digit grouping, address derivation) and passes the
+// finished pieces; these screens only lay them out, so the Pi and ESP32 can never
+// disagree on how a value rounds or an address truncates. See the psbt_* screens in
+// seedsigner.cpp for the full cfg contracts.
+
+// psbt_overview_screen: the animated transaction pictogram (inputs -> center bar ->
+// destinations) under a BtcAmount headline, over a bottom-pinned action button. cfg
+// describes the structure (num_inputs, destination_addresses, num_change_outputs,
+// has_op_return, ...) plus optional btc_amount + translated labels.
+static PyObject *py_psbt_overview_screen(PyObject *self, PyObject *args) {
+    (void)self;
+
+    PyObject *cfg = NULL;
+    if (!PyArg_ParseTuple(args, "O", &cfg)) {
+        return NULL;
+    }
+    if (!PyDict_Check(cfg)) {
+        PyErr_SetString(PyExc_RuntimeError, "psbt_overview_screen expects cfg_dict as dict");
+        return NULL;
+    }
+
+    try {
+        // Lenient (no button_list-style validate_cfg): the native screen applies its
+        // own defaults (title, single "Review details" button) for missing fields.
+        require_lvgl_runtime();
+        std::string cfg_json = py_cfg_to_json(cfg);
+        psbt_overview_screen((void *)cfg_json.c_str());
+        s_last_path = "compiled";
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+
+    Py_RETURN_NONE;
+}
+
+// psbt_address_details_screen: one recipient's amount over its full (wrapped) address,
+// centered above the action button. cfg requires an "address" string; optional
+// btc_amount, top_nav, and button_list (defaults ["Next"]).
+static PyObject *py_psbt_address_details_screen(PyObject *self, PyObject *args) {
+    (void)self;
+
+    PyObject *cfg = NULL;
+    if (!PyArg_ParseTuple(args, "O", &cfg)) {
+        return NULL;
+    }
+    if (!PyDict_Check(cfg)) {
+        PyErr_SetString(PyExc_RuntimeError, "psbt_address_details_screen expects cfg_dict as dict");
+        return NULL;
+    }
+
+    try {
+        // Lenient: the native screen defaults title/button_list and raises if the
+        // required "address" string is absent.
+        require_lvgl_runtime();
+        std::string cfg_json = py_cfg_to_json(cfg);
+        psbt_address_details_screen((void *)cfg_json.c_str());
+        s_last_path = "compiled";
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+
+    Py_RETURN_NONE;
+}
+
+// psbt_change_details_screen: the change / self-receive output — amount, an
+// address-type label ("change address #N"), the single-line address, and an optional
+// "Address verified!" line. cfg requires an "address" string; optional
+// address_type_label, is_verified, verified_text, btc_amount, button_list.
+static PyObject *py_psbt_change_details_screen(PyObject *self, PyObject *args) {
+    (void)self;
+
+    PyObject *cfg = NULL;
+    if (!PyArg_ParseTuple(args, "O", &cfg)) {
+        return NULL;
+    }
+    if (!PyDict_Check(cfg)) {
+        PyErr_SetString(PyExc_RuntimeError, "psbt_change_details_screen expects cfg_dict as dict");
+        return NULL;
+    }
+
+    try {
+        // Lenient: the native screen defaults title/button_list and raises if the
+        // required "address" string is absent.
+        require_lvgl_runtime();
+        std::string cfg_json = py_cfg_to_json(cfg);
+        psbt_change_details_screen((void *)cfg_json.c_str());
+        s_last_path = "compiled";
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+
+    Py_RETURN_NONE;
+}
+
+// psbt_math_screen: the fee "math" — a right-aligned fixed-width equation of the input
+// total minus recipients minus fee, ruled off, equalling the change. The host passes
+// each amount as an already-formatted (unpadded) number string; cfg carries
+// amounts{input,spend,fee,change}, denomination ("btc"|"sats"), num_recipients, and
+// translated labels. All fields optional (the native screen fills sensible defaults).
+static PyObject *py_psbt_math_screen(PyObject *self, PyObject *args) {
+    (void)self;
+
+    PyObject *cfg = NULL;
+    if (!PyArg_ParseTuple(args, "O", &cfg)) {
+        return NULL;
+    }
+    if (!PyDict_Check(cfg)) {
+        PyErr_SetString(PyExc_RuntimeError, "psbt_math_screen expects cfg_dict as dict");
+        return NULL;
+    }
+
+    try {
+        require_lvgl_runtime();
+        std::string cfg_json = py_cfg_to_json(cfg);
+        psbt_math_screen((void *)cfg_json.c_str());
         s_last_path = "compiled";
     } catch (const std::exception &e) {
         PyErr_SetString(PyExc_RuntimeError, e.what());
@@ -2075,7 +2217,7 @@ static PyMethodDef methods[] = {
     {"locale_picker_screen", py_locale_picker_screen, METH_VARARGS, "Build the language-selection picker (rows carry live-text or pre-rendered endonym images; result is button_selected(index)). cfg may set 'font_dir' (default 'lang-packs')."},
     {"set_screensaver_timeout", py_set_screensaver_timeout, METH_VARARGS, "set_screensaver_timeout(ms): idle ms before the native screensaver activates (0 disables)."},
     {"button_list_screen", py_button_list_screen, METH_VARARGS, "Build the button list screen (returns immediately; pump + poll for the result)."},
-    {"large_icon_status_screen", py_large_icon_status_screen, METH_VARARGS, "Build the large-icon status screen (returns immediately; pump + poll for the result)."},
+    {"large_icon_status_screen", py_large_icon_status_screen, METH_VARARGS, "Build the large-icon status screen (returns immediately; pump + poll for the result). status_type is 'success'|'warning'|'dire_warning'|'error', or 'custom' with a caller-supplied 'icon' glyph + 'icon_color' (powers PSBTFinalize / microSD notification)."},
     {"main_menu_screen", py_main_menu_screen, METH_VARARGS, "Build the main menu screen (2x2 grid; optional cfg localizes title + labels); returns immediately."},
     {"seed_add_passphrase_screen", py_seed_add_passphrase_screen, METH_VARARGS, "Build the BIP39 passphrase entry screen; result is text_entered or topnav_back."},
     {"keyboard_screen", py_keyboard_screen, METH_VARARGS, "Build the generalized keyboard entry screen (BIP-85 index / derivation path / dice / coin flip); result is text_entered or topnav_back."},
@@ -2086,6 +2228,10 @@ static PyMethodDef methods[] = {
     {"qr_display_is_tip_active", py_qr_display_is_tip_active, METH_NOARGS, "True while the QR brightness tip/panel is up; the animation driver holds while true."},
     {"splash_screen", py_splash_screen, METH_VARARGS, "Build the opening splash (optional cfg localizes version/sponsor + toggles partner logos); emits button_selected(-1, 'splash_complete') on completion."},
     {"loading_screen", py_loading_screen, METH_VARARGS, "Build the self-animating loading spinner (optional cfg {'text':...}); pure builder, fire-and-forget — no result, torn down when the next screen loads."},
+    {"psbt_overview_screen", py_psbt_overview_screen, METH_VARARGS, "Build the animated PSBT transaction-overview pictogram (inputs->center bar->destinations) + BtcAmount headline; result is button_selected (Review details) or topnav_back."},
+    {"psbt_address_details_screen", py_psbt_address_details_screen, METH_VARARGS, "Build the per-recipient address-review screen (amount over the full wrapped address; cfg requires 'address'); result is button_selected or topnav_back."},
+    {"psbt_change_details_screen", py_psbt_change_details_screen, METH_VARARGS, "Build the change/self-receive review screen (amount + address-type label + address + optional 'Address verified!'; cfg requires 'address'); result is button_selected or topnav_back."},
+    {"psbt_math_screen", py_psbt_math_screen, METH_VARARGS, "Build the fee-math equation screen (input - recipients - fee = change; host passes formatted amount strings); result is button_selected or topnav_back."},
     {"screensaver_screen", py_screensaver_screen, METH_NOARGS, "Build the screensaver (bouncing logo); returns immediately. Manual-test helper (the overlay manager owns the screensaver at runtime)."},
     {"clear_result_queue", py_clear_result_queue, METH_NOARGS, "Clear result queue."},
     {"poll_for_result", py_poll_for_result, METH_NOARGS, "Poll next result tuple or None."},

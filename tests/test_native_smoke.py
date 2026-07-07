@@ -217,6 +217,51 @@ def test_seed_finalize_screen_renders():
     mod.lvgl_shutdown()
 
 
+def test_large_icon_custom_status_renders():
+    mod = _native_or_skip()
+    mod.lvgl_init(hor_res=240, ver_res=240)
+    mod.clear_result_queue()
+
+    # Preset status_type (baked icon + color).
+    mod.large_icon_status_screen({
+        "top_nav": {"title": "Backup Verified", "show_back_button": False},
+        "status_type": "success",
+        "status_headline": "Success!",
+        "text": "All mnemonic backup words were verified.",
+        "button_list": ["OK"],
+    })
+    assert mod._debug_last_path() == "compiled"
+
+    # "custom" status_type: the caller supplies the hero glyph + color. SIGN (U+E921,
+    # PSBTFinalize) and MICROSD (U+E91F) both live in the baked 48px seedsigner icon
+    # font (PUA 0xE900-0xE923), so they render on the Pi hero-icon font.
+    mod.large_icon_status_screen({
+        "top_nav": {"title": "Sign Transaction", "show_back_button": True},
+        "status_type": "custom",
+        "icon": "",            # SeedSignerIconConstants.SIGN
+        "icon_color": "#ff9416",
+        "status_headline": "Click to sign",
+        "button_list": ["Sign"],
+    })
+    assert mod._debug_last_path() == "compiled"
+
+    # The microSD-notification custom icon renders the same way.
+    mod.large_icon_status_screen({
+        "top_nav": {"title": "microSD", "show_back_button": False},
+        "status_type": "custom",
+        "icon": "",            # SeedSignerIconConstants.MICROSD
+        "status_headline": "Insert microSD",
+        "button_list": ["OK"],
+    })
+    assert mod._debug_last_path() == "compiled"
+
+    # cfg must be a dict.
+    with pytest.raises(RuntimeError):
+        mod.large_icon_status_screen("not a dict")
+
+    mod.lvgl_shutdown()
+
+
 def test_loading_screen_renders():
     mod = _native_or_skip()
     mod.lvgl_init(hor_res=240, ver_res=240)
@@ -232,6 +277,75 @@ def test_loading_screen_renders():
     assert mod.poll_for_result() is None
     with pytest.raises(RuntimeError):
         mod.loading_screen("not a dict")
+
+    mod.lvgl_shutdown()
+
+
+def test_psbt_screens_render():
+    mod = _native_or_skip()
+    mod.lvgl_init(hor_res=240, ver_res=240)
+    mod.clear_result_queue()
+
+    # Overview: animated inputs->center bar->destinations pictogram + BtcAmount
+    # headline. Host describes the transaction STRUCTURE + already-formatted amount.
+    mod.psbt_overview_screen({
+        "top_nav": {"title": "Review Transaction"},
+        "btc_amount": {"primary": "841,234", "unit": "sats", "network": "M"},
+        "num_inputs": 3,
+        "destination_addresses": [
+            "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq",
+            "3J98t1WpEZ73CNmQviecrnyiWrnqRhWNLy",
+        ],
+        "num_change_outputs": 1,
+        "button": "Review details",
+    })
+    assert mod._debug_last_path() == "compiled"
+
+    # Address details: amount over the full wrapped recipient address.
+    mod.psbt_address_details_screen({
+        "top_nav": {"title": "Verify Send Address"},
+        "btc_amount": {"primary": "0.00841234", "unit": "btc", "network": "M"},
+        "address": "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq",
+        "button_list": ["Next"],
+    })
+    assert mod._debug_last_path() == "compiled"
+
+    # Change details: amount + address-type label + single-line address + verified line.
+    mod.psbt_change_details_screen({
+        "top_nav": {"title": "Your Change"},
+        "btc_amount": {"primary": "0.00123456", "unit": "btc", "network": "M"},
+        "address": "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq",
+        "address_type_label": "change address #0",
+        "is_verified": True,
+        "verified_text": "Address verified!",
+        "button_list": ["Done"],
+    })
+    assert mod._debug_last_path() == "compiled"
+
+    # Math: input - recipients - fee = change; host passes formatted number strings.
+    mod.psbt_math_screen({
+        "top_nav": {"title": "Transaction Math"},
+        "denomination": "sats",
+        "num_recipients": 1,
+        "amounts": {"input": "1,000,000", "spend": "841,234",
+                    "fee": "2,500", "change": "156,266"},
+        "labels": {"inputs": "inputs", "recipients": "recipients",
+                   "fee": "fee", "change": "sats change"},
+        "button_list": ["Review recipients"],
+    })
+    assert mod._debug_last_path() == "compiled"
+
+    # address is required on the two detail screens — the native side raises without it.
+    with pytest.raises(RuntimeError):
+        mod.psbt_address_details_screen({"top_nav": {"title": "Verify Send Address"}})
+    with pytest.raises(RuntimeError):
+        mod.psbt_change_details_screen({"top_nav": {"title": "Your Change"}})
+
+    # cfg must be a dict.
+    with pytest.raises(RuntimeError):
+        mod.psbt_overview_screen("not a dict")
+    with pytest.raises(RuntimeError):
+        mod.psbt_math_screen("not a dict")
 
     mod.lvgl_shutdown()
 
