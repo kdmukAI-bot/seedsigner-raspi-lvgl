@@ -1410,6 +1410,139 @@ static PyObject *py_seed_finalize_screen(PyObject *self, PyObject *args) {
     Py_RETURN_NONE;
 }
 
+// seed_export_xpub_details_screen: the xpub-export summary — fingerprint, derivation
+// path, and the (host-truncated-on-native-side) xpub as IconTextLines under a pulsing
+// yellow privacy-warning edge, above a bottom button list. cfg requires "fingerprint"
+// and "xpub" strings; optional "derivation_path" (default m/84'/0'/0'), the three field
+// labels (fingerprint_label/derivation_label/xpub_label), "top_nav", and "button_list"
+// (defaults ["Export xpub"]). Buttons emit button_selected; back emits topnav_back.
+static PyObject *py_seed_export_xpub_details_screen(PyObject *self, PyObject *args) {
+    (void)self;
+
+    PyObject *cfg = NULL;
+    if (!PyArg_ParseTuple(args, "O", &cfg)) {
+        return NULL;
+    }
+    if (!PyDict_Check(cfg)) {
+        PyErr_SetString(PyExc_RuntimeError, "seed_export_xpub_details_screen expects cfg_dict as dict");
+        return NULL;
+    }
+
+    try {
+        // Lenient: the native screen defaults title/labels/button_list and raises if the
+        // required "fingerprint"/"xpub" strings are absent.
+        require_lvgl_runtime();
+        std::string cfg_json = py_cfg_to_json(cfg);
+        seed_export_xpub_details_screen((void *)cfg_json.c_str());
+        s_last_path = "compiled";
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+
+    Py_RETURN_NONE;
+}
+
+// seed_review_passphrase_screen: the entered BIP-39 passphrase (orange, fixed-width,
+// centered, up to 3 lines) above a fingerprint IconTextLine spelling out how it changes
+// the seed's fingerprint (without >> with). cfg requires a "passphrase" string; optional
+// "fingerprint_without"/"fingerprint_with", "changes_fingerprint_label", "top_nav", and
+// "button_list" (defaults ["Done"]). Buttons emit button_selected; back emits topnav_back.
+static PyObject *py_seed_review_passphrase_screen(PyObject *self, PyObject *args) {
+    (void)self;
+
+    PyObject *cfg = NULL;
+    if (!PyArg_ParseTuple(args, "O", &cfg)) {
+        return NULL;
+    }
+    if (!PyDict_Check(cfg)) {
+        PyErr_SetString(PyExc_RuntimeError, "seed_review_passphrase_screen expects cfg_dict as dict");
+        return NULL;
+    }
+
+    try {
+        // Lenient: the native screen defaults title/button_list and raises if the
+        // required "passphrase" string is absent.
+        require_lvgl_runtime();
+        std::string cfg_json = py_cfg_to_json(cfg);
+        seed_review_passphrase_screen((void *)cfg_json.c_str());
+        s_last_path = "compiled";
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+
+    Py_RETURN_NONE;
+}
+
+// seed_words_screen: one host-paginated page of a seed's words, each numbered in a
+// rounded chip, under a pulsing orange dire-warning edge (the seed is on screen), above
+// a bottom button list. cfg requires a non-empty "words" array; optional "page_index"
+// (default 0), "num_pages" (default 1) for the default "Seed Words: n/N" title,
+// "start_number" (1-based number of this page's first word), "top_nav", and "button_list"
+// (defaults ["Done"]). Buttons emit button_selected; back emits topnav_back.
+static PyObject *py_seed_words_screen(PyObject *self, PyObject *args) {
+    (void)self;
+
+    PyObject *cfg = NULL;
+    if (!PyArg_ParseTuple(args, "O", &cfg)) {
+        return NULL;
+    }
+    if (!PyDict_Check(cfg)) {
+        PyErr_SetString(PyExc_RuntimeError, "seed_words_screen expects cfg_dict as dict");
+        return NULL;
+    }
+
+    try {
+        // Lenient: the native screen defaults title/button_list and raises if the
+        // required non-empty "words" array is absent.
+        require_lvgl_runtime();
+        std::string cfg_json = py_cfg_to_json(cfg);
+        seed_words_screen((void *)cfg_json.c_str());
+        s_last_path = "compiled";
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+
+    Py_RETURN_NONE;
+}
+
+// seed_transcribe_zoomed_qr_screen: a full-bleed, pannable zoomed view of a SeedQR /
+// CompactSeedQR for hand transcription — one highlighted zone window over the dimmed QR
+// field, the encoded pattern mask-matched to the Pi's python-qrcode so a hand copy is
+// pixel-identical. cfg requires a non-empty "qr_data" string; optional "qr_mode"
+// (numeric|alphanumeric|byte|auto, default numeric), "data_encoding" (utf8|hex|base64,
+// default utf8), "exit_text" (pre-translated bottom hint), and "initial_zone_x"/
+// "initial_zone_y" (default 0). Purely static — no host frame push. Exit (joystick click /
+// any non-arrow key / close X) emits topnav_back.
+static PyObject *py_seed_transcribe_zoomed_qr_screen(PyObject *self, PyObject *args) {
+    (void)self;
+
+    PyObject *cfg = NULL;
+    if (!PyArg_ParseTuple(args, "O", &cfg)) {
+        return NULL;
+    }
+    if (!PyDict_Check(cfg)) {
+        PyErr_SetString(PyExc_RuntimeError, "seed_transcribe_zoomed_qr_screen expects cfg_dict as dict");
+        return NULL;
+    }
+
+    try {
+        // Lenient: the native screen raises if the required non-empty "qr_data" string is
+        // absent (or qr_mode/data_encoding are invalid); every other field defaults.
+        require_lvgl_runtime();
+        std::string cfg_json = py_cfg_to_json(cfg);
+        seed_transcribe_zoomed_qr_screen((void *)cfg_json.c_str());
+        s_last_path = "compiled";
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+
+    Py_RETURN_NONE;
+}
+
 // Native QR display screen (static and host-driven animated). cfg requires "qr_data"
 // plus qr_mode/data_encoding/border/brightness options (see qr_display_screen in
 // seedsigner.cpp). For a STATIC QR the host builds once and does nothing further. For
@@ -2223,6 +2356,10 @@ static PyMethodDef methods[] = {
     {"keyboard_screen", py_keyboard_screen, METH_VARARGS, "Build the generalized keyboard entry screen (BIP-85 index / derivation path / dice / coin flip); result is text_entered or topnav_back."},
     {"seed_mnemonic_entry_screen", py_seed_mnemonic_entry_screen, METH_VARARGS, "Build the BIP39 seed-word entry screen (autocomplete over cfg['wordlist']); result is text_entered (chosen word) or topnav_back."},
     {"seed_finalize_screen", py_seed_finalize_screen, METH_VARARGS, "Build the finalize-seed screen (fingerprint readout + bottom button list; cfg requires 'fingerprint'); result is button_selected."},
+    {"seed_export_xpub_details_screen", py_seed_export_xpub_details_screen, METH_VARARGS, "Build the xpub-export summary (fingerprint/derivation/truncated-xpub IconTextLines + yellow privacy edge; cfg requires 'fingerprint' and 'xpub'); result is button_selected or topnav_back."},
+    {"seed_review_passphrase_screen", py_seed_review_passphrase_screen, METH_VARARGS, "Build the review-passphrase screen (orange fixed-width passphrase + changes-fingerprint readout; cfg requires 'passphrase'); result is button_selected or topnav_back."},
+    {"seed_words_screen", py_seed_words_screen, METH_VARARGS, "Build one host-paginated page of seed words (numbered chips + orange dire-warning edge; cfg requires a non-empty 'words' array); result is button_selected or topnav_back."},
+    {"seed_transcribe_zoomed_qr_screen", py_seed_transcribe_zoomed_qr_screen, METH_VARARGS, "Build the zoomed, pannable SeedQR transcription screen (one highlighted zone window over the dimmed QR field; pattern mask-matched to python-qrcode; cfg requires 'qr_data', optional qr_mode/data_encoding/exit_text/initial_zone_x/initial_zone_y); static, result is topnav_back on exit."},
     {"qr_display_screen", py_qr_display_screen, METH_VARARGS, "Build the native QR display screen (static or animated); result is qr_brightness then topnav_back on exit."},
     {"qr_display_set_frame", py_qr_display_set_frame, METH_VARARGS, "Push the next animated-QR frame (bytes or str) into the live qr_display_screen."},
     {"qr_display_is_tip_active", py_qr_display_is_tip_active, METH_NOARGS, "True while the QR brightness tip/panel is up; the animation driver holds while true."},
