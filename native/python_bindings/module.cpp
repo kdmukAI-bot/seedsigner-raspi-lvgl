@@ -1715,7 +1715,8 @@ static PyObject *py_splash_screen(PyObject *self, PyObject *args) {
         require_lvgl_runtime();
         if (cfg && cfg != Py_None) {
             std::string cfg_json = py_cfg_to_json(cfg);
-            splash_screen((void *)cfg_json.c_str());
+            // reorg renamed the C entry point (opening_splash_screen.cpp); the Python API stays "splash_screen".
+            opening_splash_screen((void *)cfg_json.c_str());
         } else {
             splash_screen(NULL);
         }
@@ -1757,7 +1758,8 @@ static PyObject *py_loading_screen(PyObject *self, PyObject *args) {
         require_lvgl_runtime();
         if (cfg && cfg != Py_None) {
             std::string cfg_json = py_cfg_to_json(cfg);
-            loading_screen((void *)cfg_json.c_str());
+            // reorg renamed the C entry point (loading_spinner_screen.cpp); the Python API stays "loading_screen".
+            loading_spinner_screen((void *)cfg_json.c_str());
         } else {
             loading_screen(NULL);
         }
@@ -2302,7 +2304,8 @@ static PyObject *py_locale_picker_screen(PyObject *self, PyObject *args) {
         std::string cfg_json = py_cfg_to_json(cfg);
         // locale_picker_screen() binds navigation itself (nav_bind), same as
         // button_list_screen — do not attach a parallel binding-layer group here.
-        locale_picker_screen((void *)cfg_json.c_str());
+        // reorg renamed the C entry point (settings_locale_picker_screen.cpp); the Python API stays "locale_picker_screen".
+        settings_locale_picker_screen((void *)cfg_json.c_str());
         s_last_path = "compiled";
     } catch (const std::exception &e) {
         PyErr_SetString(PyExc_RuntimeError, e.what());
