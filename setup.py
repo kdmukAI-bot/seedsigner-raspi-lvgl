@@ -105,7 +105,7 @@ if DISPLAY_HEIGHT not in _LOGO_SUFFIX_BY_HEIGHT:
 _logo_suffix = _LOGO_SUFFIX_BY_HEIGHT[DISPLAY_HEIGHT]
 
 # Base SeedSigner wordmark (screensaver + splash) + HRF partner logo (splash) +
-# Bitcoin logo (loading_screen spinner), for the active height only. Each is
+# Bitcoin logo (loading_spinner_screen spinner), for the active height only. Each is
 # #ifdef-gated in gui_constants.cpp on SUPPORT_DISPLAY_HEIGHT_<N>, so only the
 # active profile's .c must be compiled in (missing symbols fail at dlopen).
 logo_sources = [

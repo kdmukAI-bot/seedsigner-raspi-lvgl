@@ -1699,7 +1699,7 @@ static PyObject *py_main_menu_screen(PyObject *self, PyObject *args) {
 // toggles partner logos / boot-logo handoff. Pure builder: the timed logo reveal is
 // driven by lv_anim + lv_timer; on completion (or dismissal) it emits a
 // button_selected(-1, "splash_complete") result the host loop watches for.
-static PyObject *py_splash_screen(PyObject *self, PyObject *args) {
+static PyObject *py_opening_splash_screen(PyObject *self, PyObject *args) {
     (void)self;
 
     PyObject *cfg = NULL;
@@ -1707,7 +1707,7 @@ static PyObject *py_splash_screen(PyObject *self, PyObject *args) {
         return NULL;
     }
     if (cfg && cfg != Py_None && !PyDict_Check(cfg)) {
-        PyErr_SetString(PyExc_RuntimeError, "splash_screen expects cfg_dict as dict");
+        PyErr_SetString(PyExc_RuntimeError, "opening_splash_screen expects cfg_dict as dict");
         return NULL;
     }
 
@@ -1715,10 +1715,9 @@ static PyObject *py_splash_screen(PyObject *self, PyObject *args) {
         require_lvgl_runtime();
         if (cfg && cfg != Py_None) {
             std::string cfg_json = py_cfg_to_json(cfg);
-            // reorg renamed the C entry point (opening_splash_screen.cpp); the Python API stays "splash_screen".
             opening_splash_screen((void *)cfg_json.c_str());
         } else {
-            splash_screen(NULL);
+            opening_splash_screen(NULL);
         }
         s_last_path = "compiled";
     } catch (const std::exception &e) {
@@ -1742,7 +1741,7 @@ static PyObject *py_splash_screen(PyObject *self, PyObject *args) {
 // CPython/Pi the host must keep pumping (a background pump thread) for the duration, or
 // stay on the PIL LoadingScreenThread until the display cutover. See the host-side note
 // seedsigner/docs/architecture/loading-screen-native-integration.md.
-static PyObject *py_loading_screen(PyObject *self, PyObject *args) {
+static PyObject *py_loading_spinner_screen(PyObject *self, PyObject *args) {
     (void)self;
 
     PyObject *cfg = NULL;
@@ -1750,7 +1749,7 @@ static PyObject *py_loading_screen(PyObject *self, PyObject *args) {
         return NULL;
     }
     if (cfg && cfg != Py_None && !PyDict_Check(cfg)) {
-        PyErr_SetString(PyExc_RuntimeError, "loading_screen expects cfg_dict as dict");
+        PyErr_SetString(PyExc_RuntimeError, "loading_spinner_screen expects cfg_dict as dict");
         return NULL;
     }
 
@@ -1758,10 +1757,9 @@ static PyObject *py_loading_screen(PyObject *self, PyObject *args) {
         require_lvgl_runtime();
         if (cfg && cfg != Py_None) {
             std::string cfg_json = py_cfg_to_json(cfg);
-            // reorg renamed the C entry point (loading_spinner_screen.cpp); the Python API stays "loading_screen".
             loading_spinner_screen((void *)cfg_json.c_str());
         } else {
-            loading_screen(NULL);
+            loading_spinner_screen(NULL);
         }
         s_last_path = "compiled";
     } catch (const std::exception &e) {
@@ -2266,7 +2264,7 @@ static PyObject *py_list_available_locales(PyObject *self, PyObject *args) {
     return result;
 }
 
-// locale_picker_screen(cfg) -> None
+// settings_locale_picker_screen(cfg) -> None
 //
 // The language-selection screen. Each row is "English | native"; the native name
 // is live text (Latin, baked floor) or a pre-rendered endonym image for non-Latin
@@ -2277,7 +2275,7 @@ static PyObject *py_list_available_locales(PyObject *self, PyObject *args) {
 // Selection fires the standard button_selected(row_index) result — the host maps
 // the index back to the locale it placed there. Poll for the result like
 // button_list_screen.
-static PyObject *py_locale_picker_screen(PyObject *self, PyObject *args) {
+static PyObject *py_settings_locale_picker_screen(PyObject *self, PyObject *args) {
     (void)self;
 
     PyObject *cfg = NULL;
@@ -2285,7 +2283,7 @@ static PyObject *py_locale_picker_screen(PyObject *self, PyObject *args) {
         return NULL;
     }
     if (!PyDict_Check(cfg)) {
-        PyErr_SetString(PyExc_RuntimeError, "locale_picker_screen expects cfg_dict as dict");
+        PyErr_SetString(PyExc_RuntimeError, "settings_locale_picker_screen expects cfg_dict as dict");
         return NULL;
     }
 
@@ -2302,9 +2300,8 @@ static PyObject *py_locale_picker_screen(PyObject *self, PyObject *args) {
         locale_picker_set_image_provider(fs_pack_provider, &picker_ctx);
 
         std::string cfg_json = py_cfg_to_json(cfg);
-        // locale_picker_screen() binds navigation itself (nav_bind), same as
+        // settings_locale_picker_screen() binds navigation itself (nav_bind), same as
         // button_list_screen — do not attach a parallel binding-layer group here.
-        // reorg renamed the C entry point (settings_locale_picker_screen.cpp); the Python API stays "locale_picker_screen".
         settings_locale_picker_screen((void *)cfg_json.c_str());
         s_last_path = "compiled";
     } catch (const std::exception &e) {
@@ -2639,7 +2636,7 @@ static PyMethodDef methods[] = {
     {"unload_locale", py_unload_locale, METH_NOARGS, "Clear loaded locale packs and restore the baked Western floor."},
     {"discover_locale_packs", py_discover_locale_packs, METH_VARARGS, "discover_locale_packs(font_dir='lang-packs'): (re)scan <font_dir>/<locale>/manifest.json and register each pack so set_locale works for not-compiled-in locales. Returns count registered. Skips desktop-OS junk and bad/half-copied packs."},
     {"list_available_locales", py_list_available_locales, METH_VARARGS, "list_available_locales(font_dir='lang-packs'): list of {code, endonym, image, has_image} for each pack present under <font_dir>, for assembling the locale picker cfg."},
-    {"locale_picker_screen", py_locale_picker_screen, METH_VARARGS, "Build the language-selection picker (rows carry live-text or pre-rendered endonym images; result is button_selected(index)). cfg may set 'font_dir' (default 'lang-packs')."},
+    {"settings_locale_picker_screen", py_settings_locale_picker_screen, METH_VARARGS, "Build the language-selection picker (rows carry live-text or pre-rendered endonym images; result is button_selected(index)). cfg may set 'font_dir' (default 'lang-packs')."},
     {"set_screensaver_timeout", py_set_screensaver_timeout, METH_VARARGS, "set_screensaver_timeout(ms): idle ms before the native screensaver activates (0 disables)."},
     {"button_list_screen", py_button_list_screen, METH_VARARGS, "Build the button list screen (returns immediately; pump + poll for the result)."},
     {"large_icon_status_screen", py_large_icon_status_screen, METH_VARARGS, "Build the large-icon status screen (returns immediately; pump + poll for the result). status_type is 'success'|'warning'|'dire_warning'|'error', or 'custom' with a caller-supplied 'icon' glyph + 'icon_color' (powers PSBTFinalize / microSD notification)."},
@@ -2655,8 +2652,8 @@ static PyMethodDef methods[] = {
     {"qr_display_screen", py_qr_display_screen, METH_VARARGS, "Build the native QR display screen (static or animated); result is qr_brightness then topnav_back on exit."},
     {"qr_display_set_frame", py_qr_display_set_frame, METH_VARARGS, "Push the next animated-QR frame (bytes or str) into the live qr_display_screen."},
     {"qr_display_is_tip_active", py_qr_display_is_tip_active, METH_NOARGS, "True while the QR brightness tip/panel is up; the animation driver holds while true."},
-    {"splash_screen", py_splash_screen, METH_VARARGS, "Build the opening splash (optional cfg localizes version/sponsor + toggles partner logos); emits button_selected(-1, 'splash_complete') on completion."},
-    {"loading_screen", py_loading_screen, METH_VARARGS, "Build the self-animating loading spinner (optional cfg {'text':...}); pure builder, fire-and-forget — no result, torn down when the next screen loads."},
+    {"opening_splash_screen", py_opening_splash_screen, METH_VARARGS, "Build the opening splash (optional cfg localizes version/sponsor + toggles partner logos); emits button_selected(-1, 'splash_complete') on completion."},
+    {"loading_spinner_screen", py_loading_spinner_screen, METH_VARARGS, "Build the self-animating loading spinner (optional cfg {'text':...}); pure builder, fire-and-forget — no result, torn down when the next screen loads."},
     {"psbt_overview_screen", py_psbt_overview_screen, METH_VARARGS, "Build the animated PSBT transaction-overview pictogram (inputs->center bar->destinations) + BtcAmount headline; result is button_selected (Review details) or topnav_back."},
     {"psbt_address_details_screen", py_psbt_address_details_screen, METH_VARARGS, "Build the per-recipient address-review screen (amount over the full wrapped address; cfg requires 'address'); result is button_selected or topnav_back."},
     {"psbt_change_details_screen", py_psbt_change_details_screen, METH_VARARGS, "Build the change/self-receive review screen (amount + address-type label + address + optional 'Address verified!'; cfg requires 'address'); result is button_selected or topnav_back."},
