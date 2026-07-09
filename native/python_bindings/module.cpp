@@ -2328,6 +2328,295 @@ static PyObject *py_set_screensaver_timeout(PyObject *self, PyObject *args) {
     Py_RETURN_NONE;
 }
 
+// ---------------------------------------------------------------------------
+// Remaining SeedSigner-flow screen bindings (sign-message, address verify /
+// explorer, calc-final-word, multisig descriptor, settings-QR, whole-QR
+// transcribe). Each mirrors the standard lenient cfg_dict pattern and, through
+// the shared scaffold, returns button_selected / topnav_back exactly like
+// button_list_screen -- no new result types.
+//
+// The C entry points they call are declared in seedsigner.h and defined in
+// per-screen .cpp files in seedsigner-lvgl-screens, which is mid-reorg (the
+// seedsigner.cpp split into one screen per file). At the current submodule pin
+// those declarations and sources are absent, so this batch does NOT compile
+// until the reorg lands, the sources/ pin advances past it, and setup.py wires
+// the sources (see the PENDING block in setup.py). The JSON contracts below are
+// frozen -- only the compilation paths change.
+// ---------------------------------------------------------------------------
+
+// multisig_wallet_descriptor_screen: the "Descriptor Loaded" review -- a policy
+// line over the participating fingerprints (monospace), above a bottom button
+// list. cfg all-optional: "policy" (str), "signing_keys" (str) OR "fingerprints"
+// (str array), "policy_label"/"signing_keys_label", "top_nav.title" (default
+// "Descriptor Loaded"), "button_list" (default ["OK"]).
+static PyObject *py_multisig_wallet_descriptor_screen(PyObject *self, PyObject *args) {
+    (void)self;
+
+    PyObject *cfg = NULL;
+    if (!PyArg_ParseTuple(args, "O", &cfg)) {
+        return NULL;
+    }
+    if (!PyDict_Check(cfg)) {
+        PyErr_SetString(PyExc_RuntimeError, "multisig_wallet_descriptor_screen expects cfg_dict as dict");
+        return NULL;
+    }
+
+    try {
+        require_lvgl_runtime();
+        std::string cfg_json = py_cfg_to_json(cfg);
+        multisig_wallet_descriptor_screen((void *)cfg_json.c_str());
+        s_last_path = "compiled";
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+
+    Py_RETURN_NONE;
+}
+
+// seed_address_verification_screen: the live "Verify Address" scan -- the address
+// (type/network-colored) with a progress readout while derivation indexes are
+// scanned. cfg requires "address" and "type_network" strings; optional "network"
+// (default "mainnet"), "progress_text", "top_nav.title" (default "Verify Address",
+// back hidden), "button_list" (default ["Skip 10","Cancel"]).
+static PyObject *py_seed_address_verification_screen(PyObject *self, PyObject *args) {
+    (void)self;
+
+    PyObject *cfg = NULL;
+    if (!PyArg_ParseTuple(args, "O", &cfg)) {
+        return NULL;
+    }
+    if (!PyDict_Check(cfg)) {
+        PyErr_SetString(PyExc_RuntimeError, "seed_address_verification_screen expects cfg_dict as dict");
+        return NULL;
+    }
+
+    try {
+        require_lvgl_runtime();
+        std::string cfg_json = py_cfg_to_json(cfg);
+        seed_address_verification_screen((void *)cfg_json.c_str());
+        s_last_path = "compiled";
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+
+    Py_RETURN_NONE;
+}
+
+// seed_sign_message_confirm_address_screen: sign-message step 2 -- the deriving
+// path over the derived address, above a bottom button list. cfg requires
+// "derivation_path" and "address" strings; optional "derivation_path_label"
+// (default "derivation path"), "top_nav.title" (default "Confirm Address"),
+// "button_list" (default ["Sign message"]).
+static PyObject *py_seed_sign_message_confirm_address_screen(PyObject *self, PyObject *args) {
+    (void)self;
+
+    PyObject *cfg = NULL;
+    if (!PyArg_ParseTuple(args, "O", &cfg)) {
+        return NULL;
+    }
+    if (!PyDict_Check(cfg)) {
+        PyErr_SetString(PyExc_RuntimeError, "seed_sign_message_confirm_address_screen expects cfg_dict as dict");
+        return NULL;
+    }
+
+    try {
+        require_lvgl_runtime();
+        std::string cfg_json = py_cfg_to_json(cfg);
+        seed_sign_message_confirm_address_screen((void *)cfg_json.c_str());
+        s_last_path = "compiled";
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+
+    Py_RETURN_NONE;
+}
+
+// seed_sign_message_confirm_message_screen: sign-message step 1 -- the message
+// text to be signed. Re-enters the public button_list_screen and overlays the
+// message. cfg optional "message" (str) plus the standard "top_nav" /
+// "button_list" (default ["Next"]) / "is_bottom_list" chrome keys.
+static PyObject *py_seed_sign_message_confirm_message_screen(PyObject *self, PyObject *args) {
+    (void)self;
+
+    PyObject *cfg = NULL;
+    if (!PyArg_ParseTuple(args, "O", &cfg)) {
+        return NULL;
+    }
+    if (!PyDict_Check(cfg)) {
+        PyErr_SetString(PyExc_RuntimeError, "seed_sign_message_confirm_message_screen expects cfg_dict as dict");
+        return NULL;
+    }
+
+    try {
+        require_lvgl_runtime();
+        std::string cfg_json = py_cfg_to_json(cfg);
+        seed_sign_message_confirm_message_screen((void *)cfg_json.c_str());
+        s_last_path = "compiled";
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+
+    Py_RETURN_NONE;
+}
+
+// seed_transcribe_whole_qr_screen: the "whole QR" overview step of SeedQR
+// transcription -- the full QR rendered small under a title, the precursor to
+// seed_transcribe_zoomed_qr_screen. cfg requires a non-empty "qr_data" string;
+// optional "qr_mode" (numeric|alphanumeric|byte|auto, default auto),
+// "data_encoding" (utf8|hex, default utf8), "border" (default 1), "top_nav.title"
+// (default "Transcribe SeedQR"), "button_list". Needs LV_USE_QRCODE (enabled).
+static PyObject *py_seed_transcribe_whole_qr_screen(PyObject *self, PyObject *args) {
+    (void)self;
+
+    PyObject *cfg = NULL;
+    if (!PyArg_ParseTuple(args, "O", &cfg)) {
+        return NULL;
+    }
+    if (!PyDict_Check(cfg)) {
+        PyErr_SetString(PyExc_RuntimeError, "seed_transcribe_whole_qr_screen expects cfg_dict as dict");
+        return NULL;
+    }
+
+    try {
+        require_lvgl_runtime();
+        std::string cfg_json = py_cfg_to_json(cfg);
+        seed_transcribe_whole_qr_screen((void *)cfg_json.c_str());
+        s_last_path = "compiled";
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+
+    Py_RETURN_NONE;
+}
+
+// settings_qr_confirmation_screen: post-SettingsQR-import confirmation -- an
+// optional status line naming the applied config, above a single action.
+// Re-enters button_list_screen with empty intro text. cfg optional "config_name"
+// and "status_message" strings; "top_nav.title" (default "Settings QR", back
+// hidden), "button_list" (default ["Home"]).
+static PyObject *py_settings_qr_confirmation_screen(PyObject *self, PyObject *args) {
+    (void)self;
+
+    PyObject *cfg = NULL;
+    if (!PyArg_ParseTuple(args, "O", &cfg)) {
+        return NULL;
+    }
+    if (!PyDict_Check(cfg)) {
+        PyErr_SetString(PyExc_RuntimeError, "settings_qr_confirmation_screen expects cfg_dict as dict");
+        return NULL;
+    }
+
+    try {
+        require_lvgl_runtime();
+        std::string cfg_json = py_cfg_to_json(cfg);
+        settings_qr_confirmation_screen((void *)cfg_json.c_str());
+        s_last_path = "compiled";
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+
+    Py_RETURN_NONE;
+}
+
+// tools_address_explorer_address_list_screen: the Address Explorer list -- a
+// scrolling column of derived addresses (each a button) plus a "Next N" paginate
+// action, in monospace (is_bottom_list=false). cfg optional "addresses" (str
+// array), "start_index" (default 0), "initial_selected_index" (default 0),
+// "next_label", "top_nav.title" (default "Receive Addrs"; host also passes
+// "Change Addrs"). Result button_selected(index) -- address row or paginate.
+static PyObject *py_tools_address_explorer_address_list_screen(PyObject *self, PyObject *args) {
+    (void)self;
+
+    PyObject *cfg = NULL;
+    if (!PyArg_ParseTuple(args, "O", &cfg)) {
+        return NULL;
+    }
+    if (!PyDict_Check(cfg)) {
+        PyErr_SetString(PyExc_RuntimeError, "tools_address_explorer_address_list_screen expects cfg_dict as dict");
+        return NULL;
+    }
+
+    try {
+        require_lvgl_runtime();
+        std::string cfg_json = py_cfg_to_json(cfg);
+        tools_address_explorer_address_list_screen((void *)cfg_json.c_str());
+        s_last_path = "compiled";
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+
+    Py_RETURN_NONE;
+}
+
+// tools_calc_final_word_screen: BIP-39 calc-final-word entry -- the running input,
+// the computed final word, and the checksum-bit breakdown (discarded bits dimmed),
+// above a "Next" button. Re-enters button_list_screen and overlays the breakdown.
+// cfg optional "your_input_text", "final_word_text", "checksum_label" (default
+// "Checksum"), "selected_final_bits", "checksum_bits", "has_selected_word"
+// (default true), "top_nav.title" (default "Final Word Calc"), "button_list"
+// (default ["Next"]).
+static PyObject *py_tools_calc_final_word_screen(PyObject *self, PyObject *args) {
+    (void)self;
+
+    PyObject *cfg = NULL;
+    if (!PyArg_ParseTuple(args, "O", &cfg)) {
+        return NULL;
+    }
+    if (!PyDict_Check(cfg)) {
+        PyErr_SetString(PyExc_RuntimeError, "tools_calc_final_word_screen expects cfg_dict as dict");
+        return NULL;
+    }
+
+    try {
+        require_lvgl_runtime();
+        std::string cfg_json = py_cfg_to_json(cfg);
+        tools_calc_final_word_screen((void *)cfg_json.c_str());
+        s_last_path = "compiled";
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+
+    Py_RETURN_NONE;
+}
+
+// tools_calc_final_word_done_screen: calc-final-word result -- the computed final
+// word with a centered master-fingerprint readout, above a bottom button list.
+// cfg requires "final_word" and "fingerprint" strings; optional "fingerprint_label"
+// (default "fingerprint"), "mnemonic_word_length" (12 -> title "12th Word", else
+// "24th Word"), "button_list".
+static PyObject *py_tools_calc_final_word_done_screen(PyObject *self, PyObject *args) {
+    (void)self;
+
+    PyObject *cfg = NULL;
+    if (!PyArg_ParseTuple(args, "O", &cfg)) {
+        return NULL;
+    }
+    if (!PyDict_Check(cfg)) {
+        PyErr_SetString(PyExc_RuntimeError, "tools_calc_final_word_done_screen expects cfg_dict as dict");
+        return NULL;
+    }
+
+    try {
+        require_lvgl_runtime();
+        std::string cfg_json = py_cfg_to_json(cfg);
+        tools_calc_final_word_done_screen((void *)cfg_json.c_str());
+        s_last_path = "compiled";
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+
+    Py_RETURN_NONE;
+}
+
 static PyMethodDef methods[] = {
     {"lvgl_init", (PyCFunction)py_lvgl_init, METH_VARARGS | METH_KEYWORDS, "Initialize LVGL runtime."},
     {"lvgl_shutdown", py_lvgl_shutdown, METH_NOARGS, "Shutdown LVGL runtime."},
@@ -2369,6 +2658,16 @@ static PyMethodDef methods[] = {
     {"psbt_address_details_screen", py_psbt_address_details_screen, METH_VARARGS, "Build the per-recipient address-review screen (amount over the full wrapped address; cfg requires 'address'); result is button_selected or topnav_back."},
     {"psbt_change_details_screen", py_psbt_change_details_screen, METH_VARARGS, "Build the change/self-receive review screen (amount + address-type label + address + optional 'Address verified!'; cfg requires 'address'); result is button_selected or topnav_back."},
     {"psbt_math_screen", py_psbt_math_screen, METH_VARARGS, "Build the fee-math equation screen (input - recipients - fee = change; host passes formatted amount strings); result is button_selected or topnav_back."},
+    // Remaining SeedSigner-flow screens (sources pending the seedsigner.cpp reorg; see setup.py PENDING block). Frozen JSON contracts.
+    {"multisig_wallet_descriptor_screen", py_multisig_wallet_descriptor_screen, METH_VARARGS, "Build the multisig wallet-descriptor review (policy + participating fingerprints; all cfg optional: policy/signing_keys|fingerprints/labels/top_nav; button_list default ['OK']); result is button_selected or topnav_back."},
+    {"seed_address_verification_screen", py_seed_address_verification_screen, METH_VARARGS, "Build the verify-address scan screen (address + live progress; cfg requires 'address' and 'type_network', optional network/progress_text; buttons default ['Skip 10','Cancel']); result is button_selected or topnav_back."},
+    {"seed_sign_message_confirm_address_screen", py_seed_sign_message_confirm_address_screen, METH_VARARGS, "Build the sign-message confirm-address screen (derivation path + address; cfg requires 'derivation_path' and 'address'; button default ['Sign message']); result is button_selected or topnav_back."},
+    {"seed_sign_message_confirm_message_screen", py_seed_sign_message_confirm_message_screen, METH_VARARGS, "Build the sign-message confirm-message screen (message text over a Next button; optional 'message' + standard button_list chrome); result is button_selected or topnav_back."},
+    {"seed_transcribe_whole_qr_screen", py_seed_transcribe_whole_qr_screen, METH_VARARGS, "Build the whole-QR SeedQR transcription overview (full QR + title; precursor to the zoomed screen; cfg requires 'qr_data', optional qr_mode/data_encoding/border); result is button_selected or topnav_back."},
+    {"settings_qr_confirmation_screen", py_settings_qr_confirmation_screen, METH_VARARGS, "Build the settings-QR import confirmation (optional config_name/status_message; button default ['Home']); result is button_selected or topnav_back."},
+    {"tools_address_explorer_address_list_screen", py_tools_address_explorer_address_list_screen, METH_VARARGS, "Build the address-explorer address list (scrolling addresses[] + 'Next N' paginate; optional start_index/initial_selected_index/next_label; title default 'Receive Addrs'); result is button_selected(index) or topnav_back."},
+    {"tools_calc_final_word_screen", py_tools_calc_final_word_screen, METH_VARARGS, "Build the calc-final-word entry screen (input + computed word + checksum-bit breakdown; all fields optional; button default ['Next']); result is button_selected or topnav_back."},
+    {"tools_calc_final_word_done_screen", py_tools_calc_final_word_done_screen, METH_VARARGS, "Build the calc-final-word result (final word + fingerprint readout; cfg requires 'final_word' and 'fingerprint', optional fingerprint_label/mnemonic_word_length); result is button_selected or topnav_back."},
     {"screensaver_screen", py_screensaver_screen, METH_NOARGS, "Build the screensaver (bouncing logo); returns immediately. Manual-test helper (the overlay manager owns the screensaver at runtime)."},
     {"clear_result_queue", py_clear_result_queue, METH_NOARGS, "Clear result queue."},
     {"poll_for_result", py_poll_for_result, METH_NOARGS, "Poll next result tuple or None."},

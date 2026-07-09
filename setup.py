@@ -186,6 +186,26 @@ ext_modules = [
             # locale_picker_screen() calls locale_picker_attach_endonym(), so this must
             # be compiled in for the .so to dlopen.
             str(SEEDSIGNER_DIR / "locale_picker.cpp"),
+            # --- PENDING: remaining-flow screen sources (bindings landed, sources not) ---
+            # The 9 screens below are already bound in
+            # native/python_bindings/module.cpp, but their C++ entry points live in
+            # per-screen .cpp files in seedsigner-lvgl-screens, which is mid-reorg
+            # (the seedsigner.cpp split -> one screen per .cpp). Until that reorg lands
+            # and the sources/ submodule pin advances past it, these files (and their
+            # seedsigner.h declarations) do not exist, so the batch does not build.
+            # When the reorg is pinned, uncomment -- adjusting each basename to the
+            # final layout, mirroring components/seedsigner/CMakeLists.txt -- to compile
+            # them in (a missing entry = undefined symbol at dlopen):
+            # str(SEEDSIGNER_DIR / "multisig_wallet_descriptor_screen.cpp"),
+            # str(SEEDSIGNER_DIR / "seed_address_verification_screen.cpp"),
+            # str(SEEDSIGNER_DIR / "seed_sign_message_confirm_address_screen.cpp"),
+            # str(SEEDSIGNER_DIR / "seed_sign_message_confirm_message_screen.cpp"),
+            # str(SEEDSIGNER_DIR / "seed_transcribe_whole_qr_screen.cpp"),
+            # str(SEEDSIGNER_DIR / "settings_qr_confirmation_screen.cpp"),
+            # str(SEEDSIGNER_DIR / "tools_address_explorer_address_list_screen.cpp"),
+            # str(SEEDSIGNER_DIR / "tools_calc_final_word_screen.cpp"),
+            # str(SEEDSIGNER_DIR / "tools_calc_final_word_done_screen.cpp"),
+            # ---------------------------------------------------------------------------
             *logo_sources,
             *font_paths,
             *lvgl_sources,
