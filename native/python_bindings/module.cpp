@@ -2617,6 +2617,161 @@ static PyObject *py_tools_calc_final_word_done_screen(PyObject *self, PyObject *
     Py_RETURN_NONE;
 }
 
+// ---------------------------------------------------------------------------
+// Final-screens batch (reset / power-off-not-required / donate / PSBT OP_RETURN
+// / I/O test). All portable, all delegate to the shared scaffold -> standard
+// button_selected / topnav_back results (io_test is hardware-key driven: KEY1
+// capture, KEY2 clear, KEY3 exit). Their sources are components/seedsigner/
+// screens/*_screen.cpp, picked up automatically by the setup.py glob -- no
+// setup.py edit needed; this batch links once the submodule pin advances to a
+// commit that includes them (screens repo feat/final-screens). Frozen JSON
+// contracts.
+// ---------------------------------------------------------------------------
+
+// reset_screen: the "Restarting" status screen -- a centered wrapped message
+// under a title, no back/power affordance (host tears it down). cfg all-optional:
+// "text", "top_nav" (title default "Restarting").
+static PyObject *py_reset_screen(PyObject *self, PyObject *args) {
+    (void)self;
+
+    PyObject *cfg = NULL;
+    if (!PyArg_ParseTuple(args, "O", &cfg)) {
+        return NULL;
+    }
+    if (!PyDict_Check(cfg)) {
+        PyErr_SetString(PyExc_RuntimeError, "reset_screen expects cfg_dict as dict");
+        return NULL;
+    }
+
+    try {
+        require_lvgl_runtime();
+        std::string cfg_json = py_cfg_to_json(cfg);
+        reset_screen((void *)cfg_json.c_str());
+        s_last_path = "compiled";
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+
+    Py_RETURN_NONE;
+}
+
+// power_off_not_required_screen: the "Just Unplug It" advisory -- one centered
+// wrapped message; back button shown. cfg all-optional: "text", "top_nav" (title
+// default "Just Unplug It"). Result topnav_back.
+static PyObject *py_power_off_not_required_screen(PyObject *self, PyObject *args) {
+    (void)self;
+
+    PyObject *cfg = NULL;
+    if (!PyArg_ParseTuple(args, "O", &cfg)) {
+        return NULL;
+    }
+    if (!PyDict_Check(cfg)) {
+        PyErr_SetString(PyExc_RuntimeError, "power_off_not_required_screen expects cfg_dict as dict");
+        return NULL;
+    }
+
+    try {
+        require_lvgl_runtime();
+        std::string cfg_json = py_cfg_to_json(cfg);
+        power_off_not_required_screen((void *)cfg_json.c_str());
+        s_last_path = "compiled";
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+
+    Py_RETURN_NONE;
+}
+
+// donate_screen: the "Donate" screen -- body text over a URL (default
+// "seedsigner.com") in a scroll container; back shown. cfg all-optional: "text",
+// "url", "top_nav" (title default "Donate"). Result topnav_back.
+static PyObject *py_donate_screen(PyObject *self, PyObject *args) {
+    (void)self;
+
+    PyObject *cfg = NULL;
+    if (!PyArg_ParseTuple(args, "O", &cfg)) {
+        return NULL;
+    }
+    if (!PyDict_Check(cfg)) {
+        PyErr_SetString(PyExc_RuntimeError, "donate_screen expects cfg_dict as dict");
+        return NULL;
+    }
+
+    try {
+        require_lvgl_runtime();
+        std::string cfg_json = py_cfg_to_json(cfg);
+        donate_screen((void *)cfg_json.c_str());
+        s_last_path = "compiled";
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+
+    Py_RETURN_NONE;
+}
+
+// psbt_op_return_screen: the PSBT OP_RETURN data review -- raw "hex" and/or
+// decoded "text" under a caption, above a bottom button list. cfg all-optional:
+// "hex", "text", "hex_label" (default "raw hex data"), "button_list" (default
+// ["Done"]), "top_nav" (title default "OP_RETURN"). Result button_selected or
+// topnav_back.
+static PyObject *py_psbt_op_return_screen(PyObject *self, PyObject *args) {
+    (void)self;
+
+    PyObject *cfg = NULL;
+    if (!PyArg_ParseTuple(args, "O", &cfg)) {
+        return NULL;
+    }
+    if (!PyDict_Check(cfg)) {
+        PyErr_SetString(PyExc_RuntimeError, "psbt_op_return_screen expects cfg_dict as dict");
+        return NULL;
+    }
+
+    try {
+        require_lvgl_runtime();
+        std::string cfg_json = py_cfg_to_json(cfg);
+        psbt_op_return_screen((void *)cfg_json.c_str());
+        s_last_path = "compiled";
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+
+    Py_RETURN_NONE;
+}
+
+// io_test_screen: the hardware I/O self-test -- a capture pictogram with per-key
+// labels (KEY1 camera glyph / KEY2 clear / KEY3 exit); no back/power. Driven by
+// hardware key events, not a button_list. cfg all-optional: "capturing_text",
+// "clear_label" (default "Clear"), "exit_label" (default "Exit"), "camera_glyph",
+// "top_nav" (title default "I/O Test").
+static PyObject *py_io_test_screen(PyObject *self, PyObject *args) {
+    (void)self;
+
+    PyObject *cfg = NULL;
+    if (!PyArg_ParseTuple(args, "O", &cfg)) {
+        return NULL;
+    }
+    if (!PyDict_Check(cfg)) {
+        PyErr_SetString(PyExc_RuntimeError, "io_test_screen expects cfg_dict as dict");
+        return NULL;
+    }
+
+    try {
+        require_lvgl_runtime();
+        std::string cfg_json = py_cfg_to_json(cfg);
+        io_test_screen((void *)cfg_json.c_str());
+        s_last_path = "compiled";
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+
+    Py_RETURN_NONE;
+}
+
 static PyMethodDef methods[] = {
     {"lvgl_init", (PyCFunction)py_lvgl_init, METH_VARARGS | METH_KEYWORDS, "Initialize LVGL runtime."},
     {"lvgl_shutdown", py_lvgl_shutdown, METH_NOARGS, "Shutdown LVGL runtime."},
@@ -2668,6 +2823,12 @@ static PyMethodDef methods[] = {
     {"tools_address_explorer_address_list_screen", py_tools_address_explorer_address_list_screen, METH_VARARGS, "Build the address-explorer address list (scrolling addresses[] + 'Next N' paginate; optional start_index/initial_selected_index/next_label; title default 'Receive Addrs'); result is button_selected(index) or topnav_back."},
     {"tools_calc_final_word_screen", py_tools_calc_final_word_screen, METH_VARARGS, "Build the calc-final-word entry screen (input + computed word + checksum-bit breakdown; all fields optional; button default ['Next']); result is button_selected or topnav_back."},
     {"tools_calc_final_word_done_screen", py_tools_calc_final_word_done_screen, METH_VARARGS, "Build the calc-final-word result (final word + fingerprint readout; cfg requires 'final_word' and 'fingerprint', optional fingerprint_label/mnemonic_word_length); result is button_selected or topnav_back."},
+    // Final-screens batch (sources auto-globbed; link once the submodule pin advances to include them). Frozen contracts.
+    {"reset_screen", py_reset_screen, METH_VARARGS, "Build the 'Restarting' status screen (centered wrapped message; cfg all-optional: text/top_nav); no back/power affordance."},
+    {"power_off_not_required_screen", py_power_off_not_required_screen, METH_VARARGS, "Build the 'Just Unplug It' advisory (centered wrapped message; cfg all-optional: text/top_nav; back shown); result is topnav_back."},
+    {"donate_screen", py_donate_screen, METH_VARARGS, "Build the Donate screen (body text + url default 'seedsigner.com'; cfg all-optional: text/url/top_nav; back shown); result is topnav_back."},
+    {"psbt_op_return_screen", py_psbt_op_return_screen, METH_VARARGS, "Build the PSBT OP_RETURN review (raw 'hex' and/or decoded 'text' + caption; cfg all-optional, button_list default ['Done']); result is button_selected or topnav_back."},
+    {"io_test_screen", py_io_test_screen, METH_VARARGS, "Build the hardware I/O self-test (capture pictogram + KEY1 camera / KEY2 clear / KEY3 exit labels; cfg all-optional: capturing_text/clear_label/exit_label/camera_glyph); hardware-key driven."},
     {"screensaver_screen", py_screensaver_screen, METH_NOARGS, "Build the screensaver (bouncing logo); returns immediately. Manual-test helper (the overlay manager owns the screensaver at runtime)."},
     {"clear_result_queue", py_clear_result_queue, METH_NOARGS, "Clear result queue."},
     {"poll_for_result", py_poll_for_result, METH_NOARGS, "Poll next result tuple or None."},
