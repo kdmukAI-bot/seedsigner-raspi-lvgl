@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WS_ROOT="${WS_ROOT:-$(cd "${ROOT_DIR}/.." && pwd)}"
-IMAGE_TAG="${IMAGE_TAG:-registry.gitlab.com/kdmukai-bot/seedsigner-raspi-lvgl/python-armv6:py310-dev}"
+IMAGE_TAG="${IMAGE_TAG:-ghcr.io/kdmukai-bot/seedsigner-raspi-lvgl/python-armv6:py310-dev}"
 PLATFORM="${PLATFORM:-linux/arm/v6}"
 
 # Map host repo path into mounted container workspace deterministically.

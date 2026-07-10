@@ -1,3 +1,7 @@
+# Secondary mirror CI (GitHub Actions is authoritative). GitLab dind cannot
+# volume-mount the job workspace into the build container, so this is the one
+# config that cannot reuse ./run_build.sh — it reproduces the same
+# docker/build_steps.sh invocation via docker create/cp/start.
 stages:
   - build
 
@@ -10,18 +14,20 @@ build-armv6:
     DOCKER_TLS_CERTDIR: ""
     DOCKER_HOST: tcp://docker:2375
     GIT_SUBMODULE_STRATEGY: recursive
-    # Build configuration
-    BUILD_PROFILE: dev
-    PY_SERIES: py310-dev
-    IMAGE_TAG: registry.gitlab.com/kdmukai-bot/seedsigner-raspi-lvgl/python-armv6:py310-dev
+    IMAGE_TAG: ghcr.io/kdmukai-bot/seedsigner-raspi-lvgl/python-armv6:py310-dev
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       changes:
         - .gitlab-ci.yml
         - run_build.sh
-        - docker/build_steps.sh
+        - docker/**/*
+        - scripts/ci-preflight.sh
         - setup.py
+        - pyproject.toml
         - versions.lock.toml
+        - native/**/*
+        - tests/**/*
+        - sources/seedsigner-lvgl-screens
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_PIPELINE_SOURCE == "web"
   before_script:
@@ -31,9 +37,7 @@ build-armv6:
     - |
       set -euo pipefail
 
-      # Preflight: verify submodule sources are present.
-      test -d sources/seedsigner-lvgl-screens/components/seedsigner/screens
-      test -f sources/seedsigner-lvgl-screens/third_party/lvgl/lvgl.h
+      bash scripts/ci-preflight.sh
 
       docker pull --platform linux/arm/v6 "${IMAGE_TAG}"
 
@@ -42,35 +46,33 @@ build-armv6:
       CONTAINER_REPO_DIR="/workspace"
       BUILD_CONTAINER="armv6-build-$$"
 
-      mkdir -p logs
+      mkdir -p logs src
 
       docker create --name "${BUILD_CONTAINER}" \
         --platform linux/arm/v6 \
         -w "${CONTAINER_REPO_DIR}" \
-        -e RUN_TS="$(date -u +%Y%m%d-%H%M%S)" \
-        -e ABI_JSON="${CONTAINER_REPO_DIR}/docs/abi/dev-pi-abi.json" \
-        -e LOCK_FILE="${CONTAINER_REPO_DIR}/versions.lock.toml" \
-        -e SEEDSIGNER_LVGL_SCREENS_DIR="${CONTAINER_REPO_DIR}/sources/seedsigner-lvgl-screens" \
-        -e LVGL_ROOT="${CONTAINER_REPO_DIR}/sources/seedsigner-lvgl-screens/third_party/lvgl" \
-        -e LVGL_PERF_MONITOR=0 \
         "${IMAGE_TAG}" \
         bash ./docker/build_steps.sh
 
       # Copy workspace into the build container.
       docker cp . "${BUILD_CONTAINER}:${CONTAINER_REPO_DIR}"
 
-      # Run the build.
-      docker start -a "${BUILD_CONTAINER}"
+      # Run the build; keep the log and the container alive long enough to
+      # collect artifacts even on failure (artifacts: when: always).
+      BUILD_RC=0
+      docker start -a "${BUILD_CONTAINER}" 2>&1 | tee "logs/$(date -u +%Y%m%d-%H%M%S)_build.log" || BUILD_RC=$?
 
-      # Copy artifacts back out.
-      docker cp "${BUILD_CONTAINER}:${CONTAINER_REPO_DIR}/src/." ./src/
-      docker cp "${BUILD_CONTAINER}:${CONTAINER_REPO_DIR}/logs/." ./logs/ || true
-
+      if [ "${BUILD_RC}" -eq 0 ]; then
+        docker cp "${BUILD_CONTAINER}:${CONTAINER_REPO_DIR}/src/." ./src/
+      fi
       docker rm "${BUILD_CONTAINER}" || true
+
+      [ "${BUILD_RC}" -eq 0 ] || exit "${BUILD_RC}"
 
       # Verify artifact exists.
       ls -la src/seedsigner_lvgl_screens*.so
   artifacts:
+    when: always
     paths:
       - src/seedsigner_lvgl_screens*.so
       - logs/

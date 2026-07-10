@@ -5,17 +5,20 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "seedsigner-raspi-lvgl"
 version = "0.1.0"
-description = "SeedSigner LVGL prototype scaffolding"
+description = "SeedSigner LVGL native screen bindings for Raspberry Pi Zero"
 readme = "README.md"
 requires-python = ">=3.10"
 
+# No Python packages — the compiled extension is the entire import surface.
+# package-dir stays so `build_ext --inplace` drops the .so into src/.
 [tool.setuptools]
 package-dir = {"" = "src"}
-
-[tool.setuptools.packages.find]
-where = ["src"]
+packages = []
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
 addopts = "-q"
+# Only collect test_*.py: the tests/pi_*_test.py scripts are on-device manual
+# harnesses (they import the ARMv6 .so and touch hardware at module level).
+python_files = ["test_*.py"]

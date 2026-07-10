@@ -129,12 +129,15 @@ include_dirs = [
 extra_link_args: list[str] = []
 extra_compile_args: list[str] = ["-std=c++17"]
 if armv6_force:
+    # Codegen flags come from versions.lock.toml via docker/build_steps.sh
+    # (ARMV6_* env); the fallbacks only serve a bare ARMV6_FORCE=1 invocation
+    # outside the locked build.
     extra_compile_args.extend([
-        "-march=armv6zk",
-        "-mtune=arm1176jzf-s",
+        f"-march={os.environ.get('ARMV6_ARCH', 'armv6zk')}",
+        f"-mtune={os.environ.get('ARMV6_TUNE', 'arm1176jzf-s')}",
         "-marm",
-        "-mfpu=vfp",
-        "-mfloat-abi=hard",
+        f"-mfpu={os.environ.get('ARMV6_FPU', 'vfp')}",
+        f"-mfloat-abi={os.environ.get('ARMV6_FLOAT_ABI', 'hard')}",
     ])
     # Avoid runtime dependency on host libstdc++/libgcc symbol versions.
     # This is critical for Pi Zero targets that often have older system toolchains.
@@ -166,14 +169,17 @@ seedsigner_sources = sorted(
     + glob.glob(str(SEEDSIGNER_DIR / "screens" / "*_screen.cpp"))
 )
 
+# Pi platform backend + Python bindings, one subsystem per file (module.cpp is
+# the method table; see native/python_bindings/module_internal.h for the map).
+binding_sources = sorted(glob.glob(str(ROOT / "native" / "python_bindings" / "*.cpp")))
+
 ext_modules = [
     Extension(
         "seedsigner_lvgl_screens",
         sources=[
-            "native/python_bindings/module.cpp",
+            *binding_sources,
             # Every portable seedsigner component + per-screen source (see the
-            # seedsigner_sources glob above). Replaces the former hand-maintained
-            # list, which pivoted on the now-deleted seedsigner.cpp monolith.
+            # seedsigner_sources glob above).
             *seedsigner_sources,
             *logo_sources,
             *font_paths,

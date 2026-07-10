@@ -1,3 +1,7 @@
+# Secondary mirror CI (GitHub Actions is authoritative). Runs the same
+# ./run_build.sh entry as GitHub and local dev so there is one build path to
+# maintain; run_build.sh's named Docker volumes give the native runner
+# persistent ccache/venv across runs.
 name: build
 
 on:
@@ -6,23 +10,33 @@ on:
     paths:
       - '.forgejo/workflows/build.yml'
       - 'run_build.sh'
-      - 'docker/build_steps.sh'
+      - 'docker/**'
+      - 'scripts/ci-preflight.sh'
       - 'setup.py'
+      - 'pyproject.toml'
       - 'versions.lock.toml'
+      - 'native/**'
+      - 'tests/**'
+      - 'sources/seedsigner-lvgl-screens'  # submodule pointer bump (new screens)
   pull_request:
     paths:
       - '.forgejo/workflows/build.yml'
       - 'run_build.sh'
-      - 'docker/build_steps.sh'
+      - 'docker/**'
+      - 'scripts/ci-preflight.sh'
       - 'setup.py'
+      - 'pyproject.toml'
       - 'versions.lock.toml'
+      - 'native/**'
+      - 'tests/**'
+      - 'sources/seedsigner-lvgl-screens'  # submodule pointer bump (new screens)
 
 jobs:
   build-armv6:
     runs-on: native
     env:
       PY_SERIES: py310-dev
-      IMAGE_TAG: registry.gitlab.com/kdmukai-bot/seedsigner-raspi-lvgl/python-armv6:py310-dev
+      IMAGE_TAG: ghcr.io/kdmukai-bot/seedsigner-raspi-lvgl/python-armv6:py310-dev
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -33,33 +47,13 @@ jobs:
         run: docker run --privileged --rm tonistiigi/binfmt --install arm >/dev/null
 
       - name: Preflight dependency check
-        run: |
-          test -d sources/seedsigner-lvgl-screens/components/seedsigner/screens
-          test -f sources/seedsigner-lvgl-screens/third_party/lvgl/lvgl.h
+        run: bash scripts/ci-preflight.sh
 
       - name: Pull base image
         run: docker pull --platform linux/arm/v6 "${IMAGE_TAG}"
 
       - name: Build ARMv6 extension
-        run: |
-          set -euo pipefail
-
-          WS_ROOT="${GITHUB_WORKSPACE}"
-          CONTAINER_REPO_DIR="/workspace"
-
-          mkdir -p logs
-
-          docker run --rm --platform linux/arm/v6 \
-            -v "${WS_ROOT}:${CONTAINER_REPO_DIR}" \
-            -w "${CONTAINER_REPO_DIR}" \
-            -e RUN_TS="$(date -u +%Y%m%d-%H%M%S)" \
-            -e ABI_JSON="${CONTAINER_REPO_DIR}/docs/abi/dev-pi-abi.json" \
-            -e LOCK_FILE="${CONTAINER_REPO_DIR}/versions.lock.toml" \
-            -e SEEDSIGNER_LVGL_SCREENS_DIR="${CONTAINER_REPO_DIR}/sources/seedsigner-lvgl-screens" \
-            -e LVGL_ROOT="${CONTAINER_REPO_DIR}/sources/seedsigner-lvgl-screens/third_party/lvgl" \
-            -e LVGL_PERF_MONITOR=0 \
-            "${IMAGE_TAG}" \
-            bash ./docker/build_steps.sh
+        run: WS_ROOT="${GITHUB_WORKSPACE}" ./run_build.sh
 
       - name: Verify artifact
         run: ls -la src/seedsigner_lvgl_screens*.so

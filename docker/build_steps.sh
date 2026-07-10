@@ -18,8 +18,11 @@ if [[ -z "${PYTHON_BIN}" ]]; then
   exit 10
 fi
 
-# Python 3.10 does not include tomllib; install lightweight parser for lock read.
-"${PYTHON_BIN}" -c "import tomli" 2>/dev/null || "${PYTHON_BIN}" -m pip install --disable-pip-version-check -q tomli
+# Lock parsing: stdlib tomllib on py311+, tomli on the py310 base image
+# (installed only if the image doesn't already carry it).
+"${PYTHON_BIN}" -c "import tomllib" 2>/dev/null \
+  || "${PYTHON_BIN}" -c "import tomli" 2>/dev/null \
+  || "${PYTHON_BIN}" -m pip install --disable-pip-version-check -q tomli
 
 "${PYTHON_BIN}" - <<'PY' "${ABI_JSON}" "${LOCK_FILE}"
 import json, platform, sysconfig, sys
@@ -81,8 +84,9 @@ else
 fi
 echo "[build] compiler CC=${CC} CXX=${CXX}"
 
-# Force Pi Zero-compatible ARMv6 code generation from lock values.
-read -r ARCH TUNE FPU FLOAT_ABI <<< "$("${PYTHON_BIN}" - <<'PY' "${LOCK_FILE}"
+# Force Pi Zero-compatible ARMv6 code generation from lock values, and read
+# the runtime-compat symbol ceilings for the artifact gates below.
+read -r ARCH TUNE FPU FLOAT_ABI LOCK_MAX_GLIBC LOCK_MAX_GLIBCXX <<< "$("${PYTHON_BIN}" - <<'PY' "${LOCK_FILE}"
 try:
     import tomllib
 except Exception:
@@ -91,13 +95,17 @@ import sys
 with open(sys.argv[1], 'rb') as f:
     lock = tomllib.load(f)
 tc = lock['toolchain']
-print(tc['arch'], tc['tune'], tc['fpu'], tc['float_abi'])
+abi = lock.get('target_abi', {})
+print(tc['arch'], tc['tune'], tc['fpu'], tc['float_abi'],
+      abi.get('max_glibc', 'GLIBC_2.28'), abi.get('max_glibcxx', 'GLIBCXX_3.4.21'))
 PY
 )"
 
 export CFLAGS="${CFLAGS:-} -march=${ARCH} -mtune=${TUNE} -marm -mfpu=${FPU} -mfloat-abi=${FLOAT_ABI}"
 export CXXFLAGS="${CXXFLAGS:-} -march=${ARCH} -mtune=${TUNE} -marm -mfpu=${FPU} -mfloat-abi=${FLOAT_ABI}"
 export ARMV6_FORCE=1
+# setup.py reads these so the lock stays the single source of the codegen flags.
+export ARMV6_ARCH="${ARCH}" ARMV6_TUNE="${TUNE}" ARMV6_FPU="${FPU}" ARMV6_FLOAT_ABI="${FLOAT_ABI}"
 
 VENV_DIR="/root/.venv-build"
 if [[ ! -f "${VENV_DIR}/bin/activate" ]]; then
@@ -121,8 +129,10 @@ rm -rf "${BUILD_DIR}"
 python "${ROOT_DIR}/setup.py" build_ext --inplace --force --parallel "$(nproc)" \
   --build-temp "${BUILD_DIR}/temp" --build-lib "${BUILD_DIR}/lib"
 
-# Ensure tests import from local src tree.
-PYTHONPATH="${ROOT_DIR}/src" python -m pytest -q -p no:cacheprovider "${ROOT_DIR}/tests/test_native_smoke.py"
+# Ensure tests import from local src tree. Runs the whole suite: pyproject's
+# python_files restricts collection to test_*.py (the pi_*_test.py scripts are
+# on-device manual harnesses, not collectable tests).
+PYTHONPATH="${ROOT_DIR}/src" python -m pytest -q -p no:cacheprovider "${ROOT_DIR}/tests"
 
 ART="$(find "${ROOT_DIR}" -maxdepth 2 -type f -name 'seedsigner_lvgl_screens*.so' | sort | tail -n1 || true)"
 if [[ -z "${ART}" ]]; then
@@ -130,9 +140,8 @@ if [[ -z "${ART}" ]]; then
   exit 6
 fi
 
-if [[ "${ART}" != *"${target_ext_suffix:-}" ]]; then
-  # target_ext_suffix is not a shell var; verify using python to avoid drift.
-  "${PYTHON_BIN}" - <<'PY' "${ABI_JSON}" "${ART}"
+# Verify the artifact carries the target EXT_SUFFIX from the ABI capture.
+"${PYTHON_BIN}" - <<'PY' "${ABI_JSON}" "${ART}"
 import json,os,sys
 abi_json,art=sys.argv[1:3]
 with open(abi_json,'r',encoding='utf-8') as f:
@@ -142,7 +151,6 @@ if ext and not art.endswith(ext):
     raise SystemExit(f"artifact suffix mismatch: {os.path.basename(art)} != *{ext}")
 print('[build] artifact suffix OK')
 PY
-fi
 
 file "${ART}" || true
 
@@ -156,8 +164,8 @@ if command -v readelf >/dev/null 2>&1; then
 fi
 
 # Runtime compatibility gate for libstdc++ symbols.
-# Default ceiling targets older Pi userspace; override via MAX_GLIBCXX as needed.
-MAX_GLIBCXX="${MAX_GLIBCXX:-GLIBCXX_3.4.21}"
+# Ceiling comes from versions.lock.toml; override via MAX_GLIBCXX as needed.
+MAX_GLIBCXX="${MAX_GLIBCXX:-${LOCK_MAX_GLIBCXX}}"
 FOUND_GLIBCXX="$(strings "${ART}" | grep -o 'GLIBCXX_[0-9.]*' | sort -V | tail -n1 || true)"
 if [[ -n "${FOUND_GLIBCXX}" ]]; then
   echo "[build] max_glibcxx_required=${FOUND_GLIBCXX} allowed=${MAX_GLIBCXX}"
@@ -167,6 +175,21 @@ if [[ -n "${FOUND_GLIBCXX}" ]]; then
   fi
 else
   echo "[build] no GLIBCXX symbols found in artifact (likely static libstdc++)"
+fi
+
+# Runtime compatibility gate for glibc symbol versions: the bullseye builder has
+# glibc 2.31 but the target Pi runs 2.28, so a GLIBC_2.29+ versioned reference
+# only ever fails at dlopen on the device. Ceiling from versions.lock.toml.
+MAX_GLIBC="${MAX_GLIBC:-${LOCK_MAX_GLIBC}}"
+FOUND_GLIBC="$(strings "${ART}" | grep -o 'GLIBC_[0-9.]*' | sort -V | tail -n1 || true)"
+if [[ -n "${FOUND_GLIBC}" ]]; then
+  echo "[build] max_glibc_required=${FOUND_GLIBC} allowed=${MAX_GLIBC}"
+  if [[ "$(printf '%s\n%s\n' "${MAX_GLIBC}" "${FOUND_GLIBC}" | sort -V | tail -n1)" != "${MAX_GLIBC}" ]]; then
+    echo "ERROR: GLIBC requirement too new for target runtime: ${FOUND_GLIBC} > ${MAX_GLIBC}" >&2
+    exit 9
+  fi
+else
+  echo "[build] no GLIBC versioned symbols found in artifact"
 fi
 
 echo "[build] OK"

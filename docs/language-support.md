@@ -71,8 +71,9 @@ and the endonym images from the manifest; the other fields are builder-only.
 
 ## Where it lives
 
-- Bindings: `native/python_bindings/module.cpp` (`discover_locale_packs`, `list_available_locales`,
-  `settings_locale_picker_screen`, `set_locale`, `unload_locale`; the `fs_pack_provider` filesystem seam).
+- Bindings: `native/python_bindings/locale_packs.cpp` (`discover_locale_packs`, `list_available_locales`,
+  `set_locale`, `unload_locale`; the `fs_pack_provider` filesystem seam) and
+  `native/python_bindings/screens.cpp` (`settings_locale_picker_screen`).
 - Screen implementations + the manifest loader: the `sources/seedsigner-lvgl-screens` submodule.
 - Deploying packs to a device: [`dev-device-deployment.md`](dev-device-deployment.md).
 </content>

@@ -22,8 +22,7 @@ cd seedsigner-raspi-lvgl
 cp /path/to/seedsigner_lvgl_screens.cpython-310-arm-linux-gnueabihf.so src/
 ```
 
-This gives you the test scripts, Python wrapper package, and correct
-directory layout.
+This gives you the test scripts and the correct directory layout.
 
 ### Option B: Copy individual files
 
@@ -65,15 +64,17 @@ PYTHONPATH=src python3 tests/pi_input_hardware_test.py
 
 The test renders screens on the ST7789 display and waits for real input:
 
-1. **"Navigation Test"** (3 buttons) — verify UP/DOWN moves focus,
-   PRESS selects, UP past first button reaches Back in top nav
-2. **"Two Items"** — same behavior with fewer buttons
-3. **"Single Item"** — edge case
-4. **"Repeat Test"** — loops until Ctrl+C
+1. **Screensaver** (bouncing logo) — press any button to dismiss
+2. **Main Menu** (2x2 grid) — verify all 4 joystick directions + center click
+3. **"Vertical List"** (Alpha/Beta/Gamma) — UP/DOWN moves focus, PRESS
+   selects, UP past the first button reaches Back in the top nav
+4. **"Two Items"** — same behavior with fewer buttons
+5. **"Single Item"** — edge case
+6. **Main-menu loop** — repeats until Ctrl+C
 
 After each interaction, the script prints the event tuple:
 - `("button_selected", 0, "Alpha")` — body button selected
-- `("topnav_back", -1, "topnav_back")` — back pressed via top nav
+- `("topnav_back", -1, "back")` — back pressed via top nav
 
 ### What to verify
 
@@ -91,7 +92,7 @@ After each interaction, the script prints the event tuple:
 - Check GPIO access: `ls /dev/gpiochip0`
 - Run as root if permission errors occur: `sudo PYTHONPATH=src python3 tests/pi_input_hardware_test.py`
 
-## 5) Import failure diagnostics
+## 4) Import failure diagnostics
 
 If the extension fails to import, collect:
 
