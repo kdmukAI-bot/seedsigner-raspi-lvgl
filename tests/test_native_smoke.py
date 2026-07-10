@@ -150,17 +150,17 @@ def test_qr_display_screen_static_and_animated():
     mod.lvgl_shutdown()
 
 
-def test_splash_screen_renders():
+def test_opening_splash_screen_renders():
     mod = _native_or_skip()
     mod.lvgl_init(hor_res=240, ver_res=240)
     mod.clear_result_queue()
 
     # Defaults (no cfg) reproduce the English opening splash.
-    mod.splash_screen()
+    mod.opening_splash_screen()
     assert mod._debug_last_path() == "compiled"
 
     # Optional cfg merge-patches version + partner band + boot-logo handoff.
-    mod.splash_screen({
+    mod.opening_splash_screen({
         "version": "0.9.0",
         "show_partner_logos": True,
         "sponsor_text": "With support from:",
@@ -170,7 +170,7 @@ def test_splash_screen_renders():
 
     # A non-dict cfg is rejected.
     with pytest.raises(RuntimeError):
-        mod.splash_screen("not a dict")
+        mod.opening_splash_screen("not a dict")
 
     mod.lvgl_shutdown()
 
@@ -262,21 +262,21 @@ def test_large_icon_custom_status_renders():
     mod.lvgl_shutdown()
 
 
-def test_loading_screen_renders():
+def test_loading_spinner_screen_renders():
     mod = _native_or_skip()
     mod.lvgl_init(hor_res=240, ver_res=240)
     mod.clear_result_queue()
 
     # Fire-and-forget pure builder: no result, no poll loop. Defaults (no cfg) and the
     # optional status text both build; a non-dict cfg is rejected.
-    mod.loading_screen()
+    mod.loading_spinner_screen()
     assert mod._debug_last_path() == "compiled"
-    mod.loading_screen({"text": "Parsing PSBT..."})
+    mod.loading_spinner_screen({"text": "Parsing PSBT..."})
     assert mod._debug_last_path() == "compiled"
     # It produces no terminal event (would block run_lvgl_screen's poll loop).
     assert mod.poll_for_result() is None
     with pytest.raises(RuntimeError):
-        mod.loading_screen("not a dict")
+        mod.loading_spinner_screen("not a dict")
 
     mod.lvgl_shutdown()
 
@@ -426,15 +426,15 @@ def test_locale_pack_discovery_defensive():
     mod.lvgl_shutdown()
 
 
-def test_locale_picker_screen_renders():
+def test_settings_locale_picker_screen_renders():
     # Live-text rows only (no "image" key ⇒ no endonym-image provider fetch), so the
     # picker builds from the baked floor alone — Español's accented glyphs are all
-    # covered. Exercises the cfg→JSON→locale_picker_screen path headlessly.
+    # covered. Exercises the cfg→JSON→settings_locale_picker_screen path headlessly.
     mod = _native_or_skip()
     mod.lvgl_init(hor_res=240, ver_res=240)
     mod.clear_result_queue()
 
-    mod.locale_picker_screen({
+    mod.settings_locale_picker_screen({
         "top_nav": {"title": "Language", "show_back_button": True},
         "active_locale": "en",
         "rows": [
@@ -446,9 +446,9 @@ def test_locale_picker_screen_renders():
 
     # "rows" is required — the native screen raises without it.
     with pytest.raises(RuntimeError):
-        mod.locale_picker_screen({"top_nav": {"title": "Language"}})
+        mod.settings_locale_picker_screen({"top_nav": {"title": "Language"}})
     # cfg must be a dict.
     with pytest.raises(RuntimeError):
-        mod.locale_picker_screen("not a dict")
+        mod.settings_locale_picker_screen("not a dict")
 
     mod.lvgl_shutdown()

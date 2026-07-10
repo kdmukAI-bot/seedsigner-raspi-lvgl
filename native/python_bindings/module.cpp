@@ -1410,6 +1410,139 @@ static PyObject *py_seed_finalize_screen(PyObject *self, PyObject *args) {
     Py_RETURN_NONE;
 }
 
+// seed_export_xpub_details_screen: the xpub-export summary — fingerprint, derivation
+// path, and the (host-truncated-on-native-side) xpub as IconTextLines under a pulsing
+// yellow privacy-warning edge, above a bottom button list. cfg requires "fingerprint"
+// and "xpub" strings; optional "derivation_path" (default m/84'/0'/0'), the three field
+// labels (fingerprint_label/derivation_label/xpub_label), "top_nav", and "button_list"
+// (defaults ["Export xpub"]). Buttons emit button_selected; back emits topnav_back.
+static PyObject *py_seed_export_xpub_details_screen(PyObject *self, PyObject *args) {
+    (void)self;
+
+    PyObject *cfg = NULL;
+    if (!PyArg_ParseTuple(args, "O", &cfg)) {
+        return NULL;
+    }
+    if (!PyDict_Check(cfg)) {
+        PyErr_SetString(PyExc_RuntimeError, "seed_export_xpub_details_screen expects cfg_dict as dict");
+        return NULL;
+    }
+
+    try {
+        // Lenient: the native screen defaults title/labels/button_list and raises if the
+        // required "fingerprint"/"xpub" strings are absent.
+        require_lvgl_runtime();
+        std::string cfg_json = py_cfg_to_json(cfg);
+        seed_export_xpub_details_screen((void *)cfg_json.c_str());
+        s_last_path = "compiled";
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+
+    Py_RETURN_NONE;
+}
+
+// seed_review_passphrase_screen: the entered BIP-39 passphrase (orange, fixed-width,
+// centered, up to 3 lines) above a fingerprint IconTextLine spelling out how it changes
+// the seed's fingerprint (without >> with). cfg requires a "passphrase" string; optional
+// "fingerprint_without"/"fingerprint_with", "changes_fingerprint_label", "top_nav", and
+// "button_list" (defaults ["Done"]). Buttons emit button_selected; back emits topnav_back.
+static PyObject *py_seed_review_passphrase_screen(PyObject *self, PyObject *args) {
+    (void)self;
+
+    PyObject *cfg = NULL;
+    if (!PyArg_ParseTuple(args, "O", &cfg)) {
+        return NULL;
+    }
+    if (!PyDict_Check(cfg)) {
+        PyErr_SetString(PyExc_RuntimeError, "seed_review_passphrase_screen expects cfg_dict as dict");
+        return NULL;
+    }
+
+    try {
+        // Lenient: the native screen defaults title/button_list and raises if the
+        // required "passphrase" string is absent.
+        require_lvgl_runtime();
+        std::string cfg_json = py_cfg_to_json(cfg);
+        seed_review_passphrase_screen((void *)cfg_json.c_str());
+        s_last_path = "compiled";
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+
+    Py_RETURN_NONE;
+}
+
+// seed_words_screen: one host-paginated page of a seed's words, each numbered in a
+// rounded chip, under a pulsing orange dire-warning edge (the seed is on screen), above
+// a bottom button list. cfg requires a non-empty "words" array; optional "page_index"
+// (default 0), "num_pages" (default 1) for the default "Seed Words: n/N" title,
+// "start_number" (1-based number of this page's first word), "top_nav", and "button_list"
+// (defaults ["Done"]). Buttons emit button_selected; back emits topnav_back.
+static PyObject *py_seed_words_screen(PyObject *self, PyObject *args) {
+    (void)self;
+
+    PyObject *cfg = NULL;
+    if (!PyArg_ParseTuple(args, "O", &cfg)) {
+        return NULL;
+    }
+    if (!PyDict_Check(cfg)) {
+        PyErr_SetString(PyExc_RuntimeError, "seed_words_screen expects cfg_dict as dict");
+        return NULL;
+    }
+
+    try {
+        // Lenient: the native screen defaults title/button_list and raises if the
+        // required non-empty "words" array is absent.
+        require_lvgl_runtime();
+        std::string cfg_json = py_cfg_to_json(cfg);
+        seed_words_screen((void *)cfg_json.c_str());
+        s_last_path = "compiled";
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+
+    Py_RETURN_NONE;
+}
+
+// seed_transcribe_zoomed_qr_screen: a full-bleed, pannable zoomed view of a SeedQR /
+// CompactSeedQR for hand transcription — one highlighted zone window over the dimmed QR
+// field, the encoded pattern mask-matched to the Pi's python-qrcode so a hand copy is
+// pixel-identical. cfg requires a non-empty "qr_data" string; optional "qr_mode"
+// (numeric|alphanumeric|byte|auto, default numeric), "data_encoding" (utf8|hex|base64,
+// default utf8), "exit_text" (pre-translated bottom hint), and "initial_zone_x"/
+// "initial_zone_y" (default 0). Purely static — no host frame push. Exit (joystick click /
+// any non-arrow key / close X) emits topnav_back.
+static PyObject *py_seed_transcribe_zoomed_qr_screen(PyObject *self, PyObject *args) {
+    (void)self;
+
+    PyObject *cfg = NULL;
+    if (!PyArg_ParseTuple(args, "O", &cfg)) {
+        return NULL;
+    }
+    if (!PyDict_Check(cfg)) {
+        PyErr_SetString(PyExc_RuntimeError, "seed_transcribe_zoomed_qr_screen expects cfg_dict as dict");
+        return NULL;
+    }
+
+    try {
+        // Lenient: the native screen raises if the required non-empty "qr_data" string is
+        // absent (or qr_mode/data_encoding are invalid); every other field defaults.
+        require_lvgl_runtime();
+        std::string cfg_json = py_cfg_to_json(cfg);
+        seed_transcribe_zoomed_qr_screen((void *)cfg_json.c_str());
+        s_last_path = "compiled";
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+
+    Py_RETURN_NONE;
+}
+
 // Native QR display screen (static and host-driven animated). cfg requires "qr_data"
 // plus qr_mode/data_encoding/border/brightness options (see qr_display_screen in
 // seedsigner.cpp). For a STATIC QR the host builds once and does nothing further. For
@@ -1566,7 +1699,7 @@ static PyObject *py_main_menu_screen(PyObject *self, PyObject *args) {
 // toggles partner logos / boot-logo handoff. Pure builder: the timed logo reveal is
 // driven by lv_anim + lv_timer; on completion (or dismissal) it emits a
 // button_selected(-1, "splash_complete") result the host loop watches for.
-static PyObject *py_splash_screen(PyObject *self, PyObject *args) {
+static PyObject *py_opening_splash_screen(PyObject *self, PyObject *args) {
     (void)self;
 
     PyObject *cfg = NULL;
@@ -1574,7 +1707,7 @@ static PyObject *py_splash_screen(PyObject *self, PyObject *args) {
         return NULL;
     }
     if (cfg && cfg != Py_None && !PyDict_Check(cfg)) {
-        PyErr_SetString(PyExc_RuntimeError, "splash_screen expects cfg_dict as dict");
+        PyErr_SetString(PyExc_RuntimeError, "opening_splash_screen expects cfg_dict as dict");
         return NULL;
     }
 
@@ -1582,9 +1715,9 @@ static PyObject *py_splash_screen(PyObject *self, PyObject *args) {
         require_lvgl_runtime();
         if (cfg && cfg != Py_None) {
             std::string cfg_json = py_cfg_to_json(cfg);
-            splash_screen((void *)cfg_json.c_str());
+            opening_splash_screen((void *)cfg_json.c_str());
         } else {
-            splash_screen(NULL);
+            opening_splash_screen(NULL);
         }
         s_last_path = "compiled";
     } catch (const std::exception &e) {
@@ -1608,7 +1741,7 @@ static PyObject *py_splash_screen(PyObject *self, PyObject *args) {
 // CPython/Pi the host must keep pumping (a background pump thread) for the duration, or
 // stay on the PIL LoadingScreenThread until the display cutover. See the host-side note
 // seedsigner/docs/architecture/loading-screen-native-integration.md.
-static PyObject *py_loading_screen(PyObject *self, PyObject *args) {
+static PyObject *py_loading_spinner_screen(PyObject *self, PyObject *args) {
     (void)self;
 
     PyObject *cfg = NULL;
@@ -1616,7 +1749,7 @@ static PyObject *py_loading_screen(PyObject *self, PyObject *args) {
         return NULL;
     }
     if (cfg && cfg != Py_None && !PyDict_Check(cfg)) {
-        PyErr_SetString(PyExc_RuntimeError, "loading_screen expects cfg_dict as dict");
+        PyErr_SetString(PyExc_RuntimeError, "loading_spinner_screen expects cfg_dict as dict");
         return NULL;
     }
 
@@ -1624,9 +1757,9 @@ static PyObject *py_loading_screen(PyObject *self, PyObject *args) {
         require_lvgl_runtime();
         if (cfg && cfg != Py_None) {
             std::string cfg_json = py_cfg_to_json(cfg);
-            loading_screen((void *)cfg_json.c_str());
+            loading_spinner_screen((void *)cfg_json.c_str());
         } else {
-            loading_screen(NULL);
+            loading_spinner_screen(NULL);
         }
         s_last_path = "compiled";
     } catch (const std::exception &e) {
@@ -2131,7 +2264,7 @@ static PyObject *py_list_available_locales(PyObject *self, PyObject *args) {
     return result;
 }
 
-// locale_picker_screen(cfg) -> None
+// settings_locale_picker_screen(cfg) -> None
 //
 // The language-selection screen. Each row is "English | native"; the native name
 // is live text (Latin, baked floor) or a pre-rendered endonym image for non-Latin
@@ -2142,7 +2275,7 @@ static PyObject *py_list_available_locales(PyObject *self, PyObject *args) {
 // Selection fires the standard button_selected(row_index) result — the host maps
 // the index back to the locale it placed there. Poll for the result like
 // button_list_screen.
-static PyObject *py_locale_picker_screen(PyObject *self, PyObject *args) {
+static PyObject *py_settings_locale_picker_screen(PyObject *self, PyObject *args) {
     (void)self;
 
     PyObject *cfg = NULL;
@@ -2150,7 +2283,7 @@ static PyObject *py_locale_picker_screen(PyObject *self, PyObject *args) {
         return NULL;
     }
     if (!PyDict_Check(cfg)) {
-        PyErr_SetString(PyExc_RuntimeError, "locale_picker_screen expects cfg_dict as dict");
+        PyErr_SetString(PyExc_RuntimeError, "settings_locale_picker_screen expects cfg_dict as dict");
         return NULL;
     }
 
@@ -2167,9 +2300,9 @@ static PyObject *py_locale_picker_screen(PyObject *self, PyObject *args) {
         locale_picker_set_image_provider(fs_pack_provider, &picker_ctx);
 
         std::string cfg_json = py_cfg_to_json(cfg);
-        // locale_picker_screen() binds navigation itself (nav_bind), same as
+        // settings_locale_picker_screen() binds navigation itself (nav_bind), same as
         // button_list_screen — do not attach a parallel binding-layer group here.
-        locale_picker_screen((void *)cfg_json.c_str());
+        settings_locale_picker_screen((void *)cfg_json.c_str());
         s_last_path = "compiled";
     } catch (const std::exception &e) {
         PyErr_SetString(PyExc_RuntimeError, e.what());
@@ -2195,6 +2328,450 @@ static PyObject *py_set_screensaver_timeout(PyObject *self, PyObject *args) {
     Py_RETURN_NONE;
 }
 
+// ---------------------------------------------------------------------------
+// Remaining SeedSigner-flow screen bindings (sign-message, address verify /
+// explorer, calc-final-word, multisig descriptor, settings-QR, whole-QR
+// transcribe). Each mirrors the standard lenient cfg_dict pattern and, through
+// the shared scaffold, returns button_selected / topnav_back exactly like
+// button_list_screen -- no new result types.
+//
+// The C entry points they call are declared in seedsigner.h and defined in
+// per-screen .cpp files in seedsigner-lvgl-screens, which is mid-reorg (the
+// seedsigner.cpp split into one screen per file). At the current submodule pin
+// those declarations and sources are absent, so this batch does NOT compile
+// until the reorg lands, the sources/ pin advances past it, and setup.py wires
+// the sources (see the PENDING block in setup.py). The JSON contracts below are
+// frozen -- only the compilation paths change.
+// ---------------------------------------------------------------------------
+
+// multisig_wallet_descriptor_screen: the "Descriptor Loaded" review -- a policy
+// line over the participating fingerprints (monospace), above a bottom button
+// list. cfg all-optional: "policy" (str), "signing_keys" (str) OR "fingerprints"
+// (str array), "policy_label"/"signing_keys_label", "top_nav.title" (default
+// "Descriptor Loaded"), "button_list" (default ["OK"]).
+static PyObject *py_multisig_wallet_descriptor_screen(PyObject *self, PyObject *args) {
+    (void)self;
+
+    PyObject *cfg = NULL;
+    if (!PyArg_ParseTuple(args, "O", &cfg)) {
+        return NULL;
+    }
+    if (!PyDict_Check(cfg)) {
+        PyErr_SetString(PyExc_RuntimeError, "multisig_wallet_descriptor_screen expects cfg_dict as dict");
+        return NULL;
+    }
+
+    try {
+        require_lvgl_runtime();
+        std::string cfg_json = py_cfg_to_json(cfg);
+        multisig_wallet_descriptor_screen((void *)cfg_json.c_str());
+        s_last_path = "compiled";
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+
+    Py_RETURN_NONE;
+}
+
+// seed_address_verification_screen: the live "Verify Address" scan -- the address
+// (type/network-colored) with a progress readout while derivation indexes are
+// scanned. cfg requires "address" and "type_network" strings; optional "network"
+// (default "mainnet"), "progress_text", "top_nav.title" (default "Verify Address",
+// back hidden), "button_list" (default ["Skip 10","Cancel"]).
+static PyObject *py_seed_address_verification_screen(PyObject *self, PyObject *args) {
+    (void)self;
+
+    PyObject *cfg = NULL;
+    if (!PyArg_ParseTuple(args, "O", &cfg)) {
+        return NULL;
+    }
+    if (!PyDict_Check(cfg)) {
+        PyErr_SetString(PyExc_RuntimeError, "seed_address_verification_screen expects cfg_dict as dict");
+        return NULL;
+    }
+
+    try {
+        require_lvgl_runtime();
+        std::string cfg_json = py_cfg_to_json(cfg);
+        seed_address_verification_screen((void *)cfg_json.c_str());
+        s_last_path = "compiled";
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+
+    Py_RETURN_NONE;
+}
+
+// seed_sign_message_confirm_address_screen: sign-message step 2 -- the deriving
+// path over the derived address, above a bottom button list. cfg requires
+// "derivation_path" and "address" strings; optional "derivation_path_label"
+// (default "derivation path"), "top_nav.title" (default "Confirm Address"),
+// "button_list" (default ["Sign message"]).
+static PyObject *py_seed_sign_message_confirm_address_screen(PyObject *self, PyObject *args) {
+    (void)self;
+
+    PyObject *cfg = NULL;
+    if (!PyArg_ParseTuple(args, "O", &cfg)) {
+        return NULL;
+    }
+    if (!PyDict_Check(cfg)) {
+        PyErr_SetString(PyExc_RuntimeError, "seed_sign_message_confirm_address_screen expects cfg_dict as dict");
+        return NULL;
+    }
+
+    try {
+        require_lvgl_runtime();
+        std::string cfg_json = py_cfg_to_json(cfg);
+        seed_sign_message_confirm_address_screen((void *)cfg_json.c_str());
+        s_last_path = "compiled";
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+
+    Py_RETURN_NONE;
+}
+
+// seed_sign_message_confirm_message_screen: sign-message step 1 -- the message
+// text to be signed. Re-enters the public button_list_screen and overlays the
+// message. cfg optional "message" (str) plus the standard "top_nav" /
+// "button_list" (default ["Next"]) / "is_bottom_list" chrome keys.
+static PyObject *py_seed_sign_message_confirm_message_screen(PyObject *self, PyObject *args) {
+    (void)self;
+
+    PyObject *cfg = NULL;
+    if (!PyArg_ParseTuple(args, "O", &cfg)) {
+        return NULL;
+    }
+    if (!PyDict_Check(cfg)) {
+        PyErr_SetString(PyExc_RuntimeError, "seed_sign_message_confirm_message_screen expects cfg_dict as dict");
+        return NULL;
+    }
+
+    try {
+        require_lvgl_runtime();
+        std::string cfg_json = py_cfg_to_json(cfg);
+        seed_sign_message_confirm_message_screen((void *)cfg_json.c_str());
+        s_last_path = "compiled";
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+
+    Py_RETURN_NONE;
+}
+
+// seed_transcribe_whole_qr_screen: the "whole QR" overview step of SeedQR
+// transcription -- the full QR rendered small under a title, the precursor to
+// seed_transcribe_zoomed_qr_screen. cfg requires a non-empty "qr_data" string;
+// optional "qr_mode" (numeric|alphanumeric|byte|auto, default auto),
+// "data_encoding" (utf8|hex, default utf8), "border" (default 1), "top_nav.title"
+// (default "Transcribe SeedQR"), "button_list". Needs LV_USE_QRCODE (enabled).
+static PyObject *py_seed_transcribe_whole_qr_screen(PyObject *self, PyObject *args) {
+    (void)self;
+
+    PyObject *cfg = NULL;
+    if (!PyArg_ParseTuple(args, "O", &cfg)) {
+        return NULL;
+    }
+    if (!PyDict_Check(cfg)) {
+        PyErr_SetString(PyExc_RuntimeError, "seed_transcribe_whole_qr_screen expects cfg_dict as dict");
+        return NULL;
+    }
+
+    try {
+        require_lvgl_runtime();
+        std::string cfg_json = py_cfg_to_json(cfg);
+        seed_transcribe_whole_qr_screen((void *)cfg_json.c_str());
+        s_last_path = "compiled";
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+
+    Py_RETURN_NONE;
+}
+
+// settings_qr_confirmation_screen: post-SettingsQR-import confirmation -- an
+// optional status line naming the applied config, above a single action.
+// Re-enters button_list_screen with empty intro text. cfg optional "config_name"
+// and "status_message" strings; "top_nav.title" (default "Settings QR", back
+// hidden), "button_list" (default ["Home"]).
+static PyObject *py_settings_qr_confirmation_screen(PyObject *self, PyObject *args) {
+    (void)self;
+
+    PyObject *cfg = NULL;
+    if (!PyArg_ParseTuple(args, "O", &cfg)) {
+        return NULL;
+    }
+    if (!PyDict_Check(cfg)) {
+        PyErr_SetString(PyExc_RuntimeError, "settings_qr_confirmation_screen expects cfg_dict as dict");
+        return NULL;
+    }
+
+    try {
+        require_lvgl_runtime();
+        std::string cfg_json = py_cfg_to_json(cfg);
+        settings_qr_confirmation_screen((void *)cfg_json.c_str());
+        s_last_path = "compiled";
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+
+    Py_RETURN_NONE;
+}
+
+// tools_address_explorer_address_list_screen: the Address Explorer list -- a
+// scrolling column of derived addresses (each a button) plus a "Next N" paginate
+// action, in monospace (is_bottom_list=false). cfg optional "addresses" (str
+// array), "start_index" (default 0), "initial_selected_index" (default 0),
+// "next_label", "top_nav.title" (default "Receive Addrs"; host also passes
+// "Change Addrs"). Result button_selected(index) -- address row or paginate.
+static PyObject *py_tools_address_explorer_address_list_screen(PyObject *self, PyObject *args) {
+    (void)self;
+
+    PyObject *cfg = NULL;
+    if (!PyArg_ParseTuple(args, "O", &cfg)) {
+        return NULL;
+    }
+    if (!PyDict_Check(cfg)) {
+        PyErr_SetString(PyExc_RuntimeError, "tools_address_explorer_address_list_screen expects cfg_dict as dict");
+        return NULL;
+    }
+
+    try {
+        require_lvgl_runtime();
+        std::string cfg_json = py_cfg_to_json(cfg);
+        tools_address_explorer_address_list_screen((void *)cfg_json.c_str());
+        s_last_path = "compiled";
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+
+    Py_RETURN_NONE;
+}
+
+// tools_calc_final_word_screen: BIP-39 calc-final-word entry -- the running input,
+// the computed final word, and the checksum-bit breakdown (discarded bits dimmed),
+// above a "Next" button. Re-enters button_list_screen and overlays the breakdown.
+// cfg optional "your_input_text", "final_word_text", "checksum_label" (default
+// "Checksum"), "selected_final_bits", "checksum_bits", "has_selected_word"
+// (default true), "top_nav.title" (default "Final Word Calc"), "button_list"
+// (default ["Next"]).
+static PyObject *py_tools_calc_final_word_screen(PyObject *self, PyObject *args) {
+    (void)self;
+
+    PyObject *cfg = NULL;
+    if (!PyArg_ParseTuple(args, "O", &cfg)) {
+        return NULL;
+    }
+    if (!PyDict_Check(cfg)) {
+        PyErr_SetString(PyExc_RuntimeError, "tools_calc_final_word_screen expects cfg_dict as dict");
+        return NULL;
+    }
+
+    try {
+        require_lvgl_runtime();
+        std::string cfg_json = py_cfg_to_json(cfg);
+        tools_calc_final_word_screen((void *)cfg_json.c_str());
+        s_last_path = "compiled";
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+
+    Py_RETURN_NONE;
+}
+
+// tools_calc_final_word_done_screen: calc-final-word result -- the computed final
+// word with a centered master-fingerprint readout, above a bottom button list.
+// cfg requires "final_word" and "fingerprint" strings; optional "fingerprint_label"
+// (default "fingerprint"), "mnemonic_word_length" (12 -> title "12th Word", else
+// "24th Word"), "button_list".
+static PyObject *py_tools_calc_final_word_done_screen(PyObject *self, PyObject *args) {
+    (void)self;
+
+    PyObject *cfg = NULL;
+    if (!PyArg_ParseTuple(args, "O", &cfg)) {
+        return NULL;
+    }
+    if (!PyDict_Check(cfg)) {
+        PyErr_SetString(PyExc_RuntimeError, "tools_calc_final_word_done_screen expects cfg_dict as dict");
+        return NULL;
+    }
+
+    try {
+        require_lvgl_runtime();
+        std::string cfg_json = py_cfg_to_json(cfg);
+        tools_calc_final_word_done_screen((void *)cfg_json.c_str());
+        s_last_path = "compiled";
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+
+    Py_RETURN_NONE;
+}
+
+// ---------------------------------------------------------------------------
+// Final-screens batch (reset / power-off-not-required / donate / PSBT OP_RETURN
+// / I/O test). All portable, all delegate to the shared scaffold -> standard
+// button_selected / topnav_back results (io_test is hardware-key driven: KEY1
+// capture, KEY2 clear, KEY3 exit). Their sources are components/seedsigner/
+// screens/*_screen.cpp, picked up automatically by the setup.py glob -- no
+// setup.py edit needed; this batch links once the submodule pin advances to a
+// commit that includes them (screens repo feat/final-screens). Frozen JSON
+// contracts.
+// ---------------------------------------------------------------------------
+
+// reset_screen: the "Restarting" status screen -- a centered wrapped message
+// under a title, no back/power affordance (host tears it down). cfg all-optional:
+// "text", "top_nav" (title default "Restarting").
+static PyObject *py_reset_screen(PyObject *self, PyObject *args) {
+    (void)self;
+
+    PyObject *cfg = NULL;
+    if (!PyArg_ParseTuple(args, "O", &cfg)) {
+        return NULL;
+    }
+    if (!PyDict_Check(cfg)) {
+        PyErr_SetString(PyExc_RuntimeError, "reset_screen expects cfg_dict as dict");
+        return NULL;
+    }
+
+    try {
+        require_lvgl_runtime();
+        std::string cfg_json = py_cfg_to_json(cfg);
+        reset_screen((void *)cfg_json.c_str());
+        s_last_path = "compiled";
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+
+    Py_RETURN_NONE;
+}
+
+// power_off_not_required_screen: the "Just Unplug It" advisory -- one centered
+// wrapped message; back button shown. cfg all-optional: "text", "top_nav" (title
+// default "Just Unplug It"). Result topnav_back.
+static PyObject *py_power_off_not_required_screen(PyObject *self, PyObject *args) {
+    (void)self;
+
+    PyObject *cfg = NULL;
+    if (!PyArg_ParseTuple(args, "O", &cfg)) {
+        return NULL;
+    }
+    if (!PyDict_Check(cfg)) {
+        PyErr_SetString(PyExc_RuntimeError, "power_off_not_required_screen expects cfg_dict as dict");
+        return NULL;
+    }
+
+    try {
+        require_lvgl_runtime();
+        std::string cfg_json = py_cfg_to_json(cfg);
+        power_off_not_required_screen((void *)cfg_json.c_str());
+        s_last_path = "compiled";
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+
+    Py_RETURN_NONE;
+}
+
+// donate_screen: the "Donate" screen -- body text over a URL (default
+// "seedsigner.com") in a scroll container; back shown. cfg all-optional: "text",
+// "url", "top_nav" (title default "Donate"). Result topnav_back.
+static PyObject *py_donate_screen(PyObject *self, PyObject *args) {
+    (void)self;
+
+    PyObject *cfg = NULL;
+    if (!PyArg_ParseTuple(args, "O", &cfg)) {
+        return NULL;
+    }
+    if (!PyDict_Check(cfg)) {
+        PyErr_SetString(PyExc_RuntimeError, "donate_screen expects cfg_dict as dict");
+        return NULL;
+    }
+
+    try {
+        require_lvgl_runtime();
+        std::string cfg_json = py_cfg_to_json(cfg);
+        donate_screen((void *)cfg_json.c_str());
+        s_last_path = "compiled";
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+
+    Py_RETURN_NONE;
+}
+
+// psbt_op_return_screen: the PSBT OP_RETURN data review -- raw "hex" and/or
+// decoded "text" under a caption, above a bottom button list. cfg all-optional:
+// "hex", "text", "hex_label" (default "raw hex data"), "button_list" (default
+// ["Done"]), "top_nav" (title default "OP_RETURN"). Result button_selected or
+// topnav_back.
+static PyObject *py_psbt_op_return_screen(PyObject *self, PyObject *args) {
+    (void)self;
+
+    PyObject *cfg = NULL;
+    if (!PyArg_ParseTuple(args, "O", &cfg)) {
+        return NULL;
+    }
+    if (!PyDict_Check(cfg)) {
+        PyErr_SetString(PyExc_RuntimeError, "psbt_op_return_screen expects cfg_dict as dict");
+        return NULL;
+    }
+
+    try {
+        require_lvgl_runtime();
+        std::string cfg_json = py_cfg_to_json(cfg);
+        psbt_op_return_screen((void *)cfg_json.c_str());
+        s_last_path = "compiled";
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+
+    Py_RETURN_NONE;
+}
+
+// io_test_screen: the hardware I/O self-test -- a capture pictogram with per-key
+// labels (KEY1 camera glyph / KEY2 clear / KEY3 exit); no back/power. Driven by
+// hardware key events, not a button_list. cfg all-optional: "capturing_text",
+// "clear_label" (default "Clear"), "exit_label" (default "Exit"), "camera_glyph",
+// "top_nav" (title default "I/O Test").
+static PyObject *py_io_test_screen(PyObject *self, PyObject *args) {
+    (void)self;
+
+    PyObject *cfg = NULL;
+    if (!PyArg_ParseTuple(args, "O", &cfg)) {
+        return NULL;
+    }
+    if (!PyDict_Check(cfg)) {
+        PyErr_SetString(PyExc_RuntimeError, "io_test_screen expects cfg_dict as dict");
+        return NULL;
+    }
+
+    try {
+        require_lvgl_runtime();
+        std::string cfg_json = py_cfg_to_json(cfg);
+        io_test_screen((void *)cfg_json.c_str());
+        s_last_path = "compiled";
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+
+    Py_RETURN_NONE;
+}
+
 static PyMethodDef methods[] = {
     {"lvgl_init", (PyCFunction)py_lvgl_init, METH_VARARGS | METH_KEYWORDS, "Initialize LVGL runtime."},
     {"lvgl_shutdown", py_lvgl_shutdown, METH_NOARGS, "Shutdown LVGL runtime."},
@@ -2214,7 +2791,7 @@ static PyMethodDef methods[] = {
     {"unload_locale", py_unload_locale, METH_NOARGS, "Clear loaded locale packs and restore the baked Western floor."},
     {"discover_locale_packs", py_discover_locale_packs, METH_VARARGS, "discover_locale_packs(font_dir='lang-packs'): (re)scan <font_dir>/<locale>/manifest.json and register each pack so set_locale works for not-compiled-in locales. Returns count registered. Skips desktop-OS junk and bad/half-copied packs."},
     {"list_available_locales", py_list_available_locales, METH_VARARGS, "list_available_locales(font_dir='lang-packs'): list of {code, endonym, image, has_image} for each pack present under <font_dir>, for assembling the locale picker cfg."},
-    {"locale_picker_screen", py_locale_picker_screen, METH_VARARGS, "Build the language-selection picker (rows carry live-text or pre-rendered endonym images; result is button_selected(index)). cfg may set 'font_dir' (default 'lang-packs')."},
+    {"settings_locale_picker_screen", py_settings_locale_picker_screen, METH_VARARGS, "Build the language-selection picker (rows carry live-text or pre-rendered endonym images; result is button_selected(index)). cfg may set 'font_dir' (default 'lang-packs')."},
     {"set_screensaver_timeout", py_set_screensaver_timeout, METH_VARARGS, "set_screensaver_timeout(ms): idle ms before the native screensaver activates (0 disables)."},
     {"button_list_screen", py_button_list_screen, METH_VARARGS, "Build the button list screen (returns immediately; pump + poll for the result)."},
     {"large_icon_status_screen", py_large_icon_status_screen, METH_VARARGS, "Build the large-icon status screen (returns immediately; pump + poll for the result). status_type is 'success'|'warning'|'dire_warning'|'error', or 'custom' with a caller-supplied 'icon' glyph + 'icon_color' (powers PSBTFinalize / microSD notification)."},
@@ -2223,15 +2800,35 @@ static PyMethodDef methods[] = {
     {"keyboard_screen", py_keyboard_screen, METH_VARARGS, "Build the generalized keyboard entry screen (BIP-85 index / derivation path / dice / coin flip); result is text_entered or topnav_back."},
     {"seed_mnemonic_entry_screen", py_seed_mnemonic_entry_screen, METH_VARARGS, "Build the BIP39 seed-word entry screen (autocomplete over cfg['wordlist']); result is text_entered (chosen word) or topnav_back."},
     {"seed_finalize_screen", py_seed_finalize_screen, METH_VARARGS, "Build the finalize-seed screen (fingerprint readout + bottom button list; cfg requires 'fingerprint'); result is button_selected."},
+    {"seed_export_xpub_details_screen", py_seed_export_xpub_details_screen, METH_VARARGS, "Build the xpub-export summary (fingerprint/derivation/truncated-xpub IconTextLines + yellow privacy edge; cfg requires 'fingerprint' and 'xpub'); result is button_selected or topnav_back."},
+    {"seed_review_passphrase_screen", py_seed_review_passphrase_screen, METH_VARARGS, "Build the review-passphrase screen (orange fixed-width passphrase + changes-fingerprint readout; cfg requires 'passphrase'); result is button_selected or topnav_back."},
+    {"seed_words_screen", py_seed_words_screen, METH_VARARGS, "Build one host-paginated page of seed words (numbered chips + orange dire-warning edge; cfg requires a non-empty 'words' array); result is button_selected or topnav_back."},
+    {"seed_transcribe_zoomed_qr_screen", py_seed_transcribe_zoomed_qr_screen, METH_VARARGS, "Build the zoomed, pannable SeedQR transcription screen (one highlighted zone window over the dimmed QR field; pattern mask-matched to python-qrcode; cfg requires 'qr_data', optional qr_mode/data_encoding/exit_text/initial_zone_x/initial_zone_y); static, result is topnav_back on exit."},
     {"qr_display_screen", py_qr_display_screen, METH_VARARGS, "Build the native QR display screen (static or animated); result is qr_brightness then topnav_back on exit."},
     {"qr_display_set_frame", py_qr_display_set_frame, METH_VARARGS, "Push the next animated-QR frame (bytes or str) into the live qr_display_screen."},
     {"qr_display_is_tip_active", py_qr_display_is_tip_active, METH_NOARGS, "True while the QR brightness tip/panel is up; the animation driver holds while true."},
-    {"splash_screen", py_splash_screen, METH_VARARGS, "Build the opening splash (optional cfg localizes version/sponsor + toggles partner logos); emits button_selected(-1, 'splash_complete') on completion."},
-    {"loading_screen", py_loading_screen, METH_VARARGS, "Build the self-animating loading spinner (optional cfg {'text':...}); pure builder, fire-and-forget — no result, torn down when the next screen loads."},
+    {"opening_splash_screen", py_opening_splash_screen, METH_VARARGS, "Build the opening splash (optional cfg localizes version/sponsor + toggles partner logos); emits button_selected(-1, 'splash_complete') on completion."},
+    {"loading_spinner_screen", py_loading_spinner_screen, METH_VARARGS, "Build the self-animating loading spinner (optional cfg {'text':...}); pure builder, fire-and-forget — no result, torn down when the next screen loads."},
     {"psbt_overview_screen", py_psbt_overview_screen, METH_VARARGS, "Build the animated PSBT transaction-overview pictogram (inputs->center bar->destinations) + BtcAmount headline; result is button_selected (Review details) or topnav_back."},
     {"psbt_address_details_screen", py_psbt_address_details_screen, METH_VARARGS, "Build the per-recipient address-review screen (amount over the full wrapped address; cfg requires 'address'); result is button_selected or topnav_back."},
     {"psbt_change_details_screen", py_psbt_change_details_screen, METH_VARARGS, "Build the change/self-receive review screen (amount + address-type label + address + optional 'Address verified!'; cfg requires 'address'); result is button_selected or topnav_back."},
     {"psbt_math_screen", py_psbt_math_screen, METH_VARARGS, "Build the fee-math equation screen (input - recipients - fee = change; host passes formatted amount strings); result is button_selected or topnav_back."},
+    // Remaining SeedSigner-flow screens (post-split; sources auto-globbed from screens/*_screen.cpp). Frozen JSON contracts.
+    {"multisig_wallet_descriptor_screen", py_multisig_wallet_descriptor_screen, METH_VARARGS, "Build the multisig wallet-descriptor review (policy + participating fingerprints; all cfg optional: policy/signing_keys|fingerprints/labels/top_nav; button_list default ['OK']); result is button_selected or topnav_back."},
+    {"seed_address_verification_screen", py_seed_address_verification_screen, METH_VARARGS, "Build the verify-address scan screen (address + live progress; cfg requires 'address' and 'type_network', optional network/progress_text; buttons default ['Skip 10','Cancel']); result is button_selected or topnav_back."},
+    {"seed_sign_message_confirm_address_screen", py_seed_sign_message_confirm_address_screen, METH_VARARGS, "Build the sign-message confirm-address screen (derivation path + address; cfg requires 'derivation_path' and 'address'; button default ['Sign message']); result is button_selected or topnav_back."},
+    {"seed_sign_message_confirm_message_screen", py_seed_sign_message_confirm_message_screen, METH_VARARGS, "Build the sign-message confirm-message screen (message text over a Next button; optional 'message' + standard button_list chrome); result is button_selected or topnav_back."},
+    {"seed_transcribe_whole_qr_screen", py_seed_transcribe_whole_qr_screen, METH_VARARGS, "Build the whole-QR SeedQR transcription overview (full QR + title; precursor to the zoomed screen; cfg requires 'qr_data', optional qr_mode/data_encoding/border); result is button_selected or topnav_back."},
+    {"settings_qr_confirmation_screen", py_settings_qr_confirmation_screen, METH_VARARGS, "Build the settings-QR import confirmation (optional config_name/status_message; button default ['Home']); result is button_selected or topnav_back."},
+    {"tools_address_explorer_address_list_screen", py_tools_address_explorer_address_list_screen, METH_VARARGS, "Build the address-explorer address list (scrolling addresses[] + 'Next N' paginate; optional start_index/initial_selected_index/next_label; title default 'Receive Addrs'); result is button_selected(index) or topnav_back."},
+    {"tools_calc_final_word_screen", py_tools_calc_final_word_screen, METH_VARARGS, "Build the calc-final-word entry screen (input + computed word + checksum-bit breakdown; all fields optional; button default ['Next']); result is button_selected or topnav_back."},
+    {"tools_calc_final_word_done_screen", py_tools_calc_final_word_done_screen, METH_VARARGS, "Build the calc-final-word result (final word + fingerprint readout; cfg requires 'final_word' and 'fingerprint', optional fingerprint_label/mnemonic_word_length); result is button_selected or topnav_back."},
+    // Final-screens batch (sources auto-globbed; link once the submodule pin advances to include them). Frozen contracts.
+    {"reset_screen", py_reset_screen, METH_VARARGS, "Build the 'Restarting' status screen (centered wrapped message; cfg all-optional: text/top_nav); no back/power affordance."},
+    {"power_off_not_required_screen", py_power_off_not_required_screen, METH_VARARGS, "Build the 'Just Unplug It' advisory (centered wrapped message; cfg all-optional: text/top_nav; back shown); result is topnav_back."},
+    {"donate_screen", py_donate_screen, METH_VARARGS, "Build the Donate screen (body text + url default 'seedsigner.com'; cfg all-optional: text/url/top_nav; back shown); result is topnav_back."},
+    {"psbt_op_return_screen", py_psbt_op_return_screen, METH_VARARGS, "Build the PSBT OP_RETURN review (raw 'hex' and/or decoded 'text' + caption; cfg all-optional, button_list default ['Done']); result is button_selected or topnav_back."},
+    {"io_test_screen", py_io_test_screen, METH_VARARGS, "Build the hardware I/O self-test (capture pictogram + KEY1 camera / KEY2 clear / KEY3 exit labels; cfg all-optional: capturing_text/clear_label/exit_label/camera_glyph); hardware-key driven."},
     {"screensaver_screen", py_screensaver_screen, METH_NOARGS, "Build the screensaver (bouncing logo); returns immediately. Manual-test helper (the overlay manager owns the screensaver at runtime)."},
     {"clear_result_queue", py_clear_result_queue, METH_NOARGS, "Clear result queue."},
     {"poll_for_result", py_poll_for_result, METH_NOARGS, "Poll next result tuple or None."},

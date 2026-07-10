@@ -21,8 +21,11 @@ else:
 SEEDSIGNER_DIR = SEEDSIGNER_LVGL_SCREENS_DIR / "components" / "seedsigner"
 NLOHMANN_JSON_INCLUDE_DIR = SEEDSIGNER_LVGL_SCREENS_DIR / "components" / "nlohmann_json" / "include"
 
-if not (SEEDSIGNER_DIR / "seedsigner.cpp").exists():
-    raise RuntimeError(f"Missing seedsigner.cpp under {SEEDSIGNER_DIR}")
+if not (SEEDSIGNER_DIR / "screens").is_dir():
+    raise RuntimeError(
+        f"Missing screens/ under {SEEDSIGNER_DIR} -- submodule not checked out, "
+        f"or pinned before the seedsigner.cpp split reorg."
+    )
 if not (LVGL_ROOT / "lvgl.h").exists():
     raise RuntimeError(f"Missing lvgl.h under {LVGL_ROOT}")
 
@@ -102,7 +105,7 @@ if DISPLAY_HEIGHT not in _LOGO_SUFFIX_BY_HEIGHT:
 _logo_suffix = _LOGO_SUFFIX_BY_HEIGHT[DISPLAY_HEIGHT]
 
 # Base SeedSigner wordmark (screensaver + splash) + HRF partner logo (splash) +
-# Bitcoin logo (loading_screen spinner), for the active height only. Each is
+# Bitcoin logo (loading_spinner_screen spinner), for the active height only. Each is
 # #ifdef-gated in gui_constants.cpp on SUPPORT_DISPLAY_HEIGHT_<N>, so only the
 # active profile's .c must be compiled in (missing symbols fail at dlopen).
 logo_sources = [
@@ -148,44 +151,30 @@ if cross_build and python_target_ldlibrary:
         libname = python_target_ldlibrary[3:].split(".")[0]
         extra_link_args.extend([f"-l{libname}"])
 
+# Portable seedsigner component sources. The screens repo replaced its monolithic
+# seedsigner.cpp with one file per screen under screens/ plus shared helpers
+# (qr_core / screen_helpers / screen_scaffold). Every top-level .cpp/.c and every
+# screens/*_screen.cpp under components/seedsigner/ is portable and compiled in --
+# mirroring components/seedsigner/screen_sources.cmake (screens glob) so new screens
+# are picked up mechanically, with no ESP32-only translation units in this dir to
+# exclude. Camera *overlay* / *overlay_screen sources are UI-only (no camera driver)
+# and link in even though the camera screens are not bound to Python. Sorted for a
+# deterministic link order.
+seedsigner_sources = sorted(
+    glob.glob(str(SEEDSIGNER_DIR / "*.cpp"))
+    + glob.glob(str(SEEDSIGNER_DIR / "*.c"))
+    + glob.glob(str(SEEDSIGNER_DIR / "screens" / "*_screen.cpp"))
+)
+
 ext_modules = [
     Extension(
         "seedsigner_lvgl_screens",
         sources=[
             "native/python_bindings/module.cpp",
-            str(SEEDSIGNER_DIR / "components.cpp"),
-            str(SEEDSIGNER_DIR / "gui_constants.cpp"),
-            str(SEEDSIGNER_DIR / "input_profile.cpp"),
-            str(SEEDSIGNER_DIR / "navigation.cpp"),
-            str(SEEDSIGNER_DIR / "seedsigner.cpp"),
-            # Shared LVGL keyboard/text-entry mechanics (kb_* helpers) extracted from
-            # the passphrase keyboard; keyboard_screen + seed_mnemonic_entry_screen +
-            # seed_add_passphrase_screen all link against it.
-            str(SEEDSIGNER_DIR / "keyboard_core.cpp"),
-            # Portable camera live-preview OVERLAY renderer (pure LVGL widgets, no
-            # camera driver). We do not bind camera_preview_overlay_screen to Python
-            # (the camera capture pipeline is out of scope for the Pi extension), but
-            # seedsigner.cpp references camera_preview_overlay_create()/_destroy(), so
-            # this must be compiled in for the .so to dlopen.
-            str(SEEDSIGNER_DIR / "camera_preview_overlay.cpp"),
-            # Sibling image-entropy capture overlay. Likewise not bound to Python (the
-            # camera pipeline is out of scope for the Pi extension), but seedsigner.cpp's
-            # camera_entropy_overlay_screen() calls camera_entropy_overlay_create()/
-            # _destroy() unconditionally, so it must be compiled in for the .so to dlopen.
-            str(SEEDSIGNER_DIR / "camera_entropy_overlay.cpp"),
-            str(SEEDSIGNER_DIR / "overlay_manager.cpp"),  # native screensaver idle-watch dispatcher
-            # i18n / font-pack layer (shared, host-agnostic). The host plugs into
-            # ss_load_locale() via a filesystem pack-provider (see module.cpp).
-            str(SEEDSIGNER_DIR / "locale_fonts.cpp"),     # canonical locale->font manifest
-            str(SEEDSIGNER_DIR / "font_registry.cpp"),    # tiny_ttf role-font registration
-            str(SEEDSIGNER_DIR / "locale_loader.cpp"),    # ss_load_locale orchestration
-            str(SEEDSIGNER_DIR / "glyph_runs.cpp"),       # complex-script pre-shaped runs
-            str(SEEDSIGNER_DIR / "stb_glyph_metrics.c"),  # glyph boxes for run rendering
-            # locale_picker_screen's endonym-image rows: parses the SSA8 A8 blobs and
-            # paints them recolored to each row's live text color. seedsigner.cpp's
-            # locale_picker_screen() calls locale_picker_attach_endonym(), so this must
-            # be compiled in for the .so to dlopen.
-            str(SEEDSIGNER_DIR / "locale_picker.cpp"),
+            # Every portable seedsigner component + per-screen source (see the
+            # seedsigner_sources glob above). Replaces the former hand-maintained
+            # list, which pivoted on the now-deleted seedsigner.cpp monolith.
+            *seedsigner_sources,
             *logo_sources,
             *font_paths,
             *lvgl_sources,

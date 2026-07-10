@@ -40,7 +40,7 @@ fonts.
 
 ## The picker
 
-`locale_picker_screen(cfg)` renders each language's name in its own script: Latin names as live
+`settings_locale_picker_screen(cfg)` renders each language's name in its own script: Latin names as live
 text (the baked floor covers them), non-Latin names as pre-rendered **endonym images** fetched
 from the pack (`endonym_<height>.bin`) — so the picker never needs every script's font resident.
 The app builds the rows from `list_available_locales()` (the font packs present) unioned with the
@@ -72,7 +72,7 @@ and the endonym images from the manifest; the other fields are builder-only.
 ## Where it lives
 
 - Bindings: `native/python_bindings/module.cpp` (`discover_locale_packs`, `list_available_locales`,
-  `locale_picker_screen`, `set_locale`, `unload_locale`; the `fs_pack_provider` filesystem seam).
+  `settings_locale_picker_screen`, `set_locale`, `unload_locale`; the `fs_pack_provider` filesystem seam).
 - Screen implementations + the manifest loader: the `sources/seedsigner-lvgl-screens` submodule.
 - Deploying packs to a device: [`dev-device-deployment.md`](dev-device-deployment.md).
 </content>
