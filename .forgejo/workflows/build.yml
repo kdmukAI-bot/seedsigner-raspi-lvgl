@@ -34,7 +34,7 @@ jobs:
 
       - name: Preflight dependency check
         run: |
-          test -f sources/seedsigner-lvgl-screens/components/seedsigner/seedsigner.cpp
+          test -d sources/seedsigner-lvgl-screens/components/seedsigner/screens
           test -f sources/seedsigner-lvgl-screens/third_party/lvgl/lvgl.h
 
       - name: Pull base image

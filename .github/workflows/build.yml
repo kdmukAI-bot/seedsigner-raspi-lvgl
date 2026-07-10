@@ -119,7 +119,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -f "${GITHUB_WORKSPACE}/sources/seedsigner-lvgl-screens/components/seedsigner/seedsigner.cpp"
+          test -d "${GITHUB_WORKSPACE}/sources/seedsigner-lvgl-screens/components/seedsigner/screens"
           test -f "${GITHUB_WORKSPACE}/sources/seedsigner-lvgl-screens/third_party/lvgl/lvgl.h"
 
       - name: Restore ccache
