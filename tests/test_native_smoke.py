@@ -131,8 +131,9 @@ def test_qr_display_screen_static_and_animated():
     })
     assert mod._debug_last_path() == "compiled"
 
-    # No QR screen tip is active in this headless build path.
-    assert mod.qr_display_is_tip_active() in (True, False)
+    # The brightness tip IS active right after build (QRDisplayScreen parity:
+    # the panel greets the user on start); the frame driver must hold while true.
+    assert mod.qr_display_is_tip_active() is True
 
     # Animated: push frames as str (UTF-8) and bytes; both are safe no-ops if the
     # native ctx isn't live, and must not raise.

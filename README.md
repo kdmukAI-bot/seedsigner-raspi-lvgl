@@ -18,21 +18,20 @@ navigation, and focus management via LVGL.
 ```
 Python View layer
     │  button_list_screen(cfg_dict)
-    │  poll_for_result() → ("button_selected", index, label)
+    │  lvgl_pump() + poll_for_result() → ("button_selected", index, label)
     ▼
-CPython binding (module.cpp)
-    │  JSON marshal, LVGL runtime, result queue
+CPython bindings + Pi platform backend (native/python_bindings/)
+    │  JSON marshal, LVGL runtime + pump, result queue,
+    │  ST7789 SPI flush, GPIO input polling
     ▼
-Portable screen core (seedsigner-lvgl-screens)
-    │  seedsigner.cpp, components.cpp, navigation.cpp
-    ▼
-Pi platform backend (module.cpp)
-    │  ST7789 SPI flush, GPIO input polling, LVGL tick
+Portable screen core (sources/seedsigner-lvgl-screens)
+    │  screens/*_screen.cpp, components.cpp, navigation.cpp
     ▼
 Hardware: 240x240 ST7789 + joystick + KEY1/KEY2/KEY3
 ```
 
-See `docs/architecture.md` for design decisions and boundaries.
+See `docs/architecture.md` for layer boundaries, the binding-file map, and the
+hardware profile.
 
 ## Quick start
 
@@ -52,20 +51,18 @@ See `README-dev.md` for build commands, CI details, and Pi hardware testing.
 - 5-way joystick + 3 side buttons (KEY1/KEY2/KEY3)
 - No touchscreen
 
-Pin mappings and timing: `docs/hardware-profile.md`
-
 ## Documentation
 
 | Document | Purpose |
 |----------|---------|
-| `README-dev.md` | Build commands, CI, testing |
-| `docs/architecture.md` | Design decisions and layer boundaries |
-| `docs/hardware-profile.md` | GPIO pins, SPI config, timing |
-| `docs/input-button-behavior.md` | Navigation model and input contract |
-| `docs/interface-contract.md` | Python binding API contract |
+| `README-dev.md` | Build commands, CI, base-image publishing |
+| `docs/architecture.md` | Layer boundaries, binding-file map, hardware profile |
+| `docs/interface-contract.md` | Python API contract: methods, cfg shapes, result tuples, input model |
+| `docs/language-support.md` | Locale/font-pack loading |
 | `docs/pi-hardware-test.md` | On-device validation guide |
-| `docs/python-abi-targets.md` | Target Python ABI decisions |
-| `docs/production-parity-lock.md` | Version pinning policy |
+| `docs/dev-device-deployment.md` | Deploying builds to the dev Pi |
+| `docs/python-abi-targets.md` | Target Python ABI + production-parity policy |
+| `docs/knowledge/` | Debug journals and non-obvious constraints |
 
 ## Upstream references
 

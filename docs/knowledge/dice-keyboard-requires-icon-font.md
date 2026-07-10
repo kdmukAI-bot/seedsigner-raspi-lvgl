@@ -17,13 +17,13 @@ every size. In the pinned `seedsigner-lvgl-screens` submodule (`sources/seedsign
 `ICON_FONT__SEEDSIGNER` contains the dice glyphs. The desktop screenshot generator renders the
 dice keyboard correctly, proving the font content is present.
 
-The problem is which font the keyboard selects. `keyboard_screen` (screens repo `seedsigner.cpp`)
+The problem is which font the keyboard selects. `keyboard_screen` (screens repo `screens/keyboard_screen.cpp`)
 draws the keys in the default `KEYBOARD_FONT` (Inconsolata — **no** dice glyphs) **unless** the
 cfg sets `keyboard_font: "icon"` (or `"fontawesome"`), which switches the key glyph font to
 `ICON_FONT__SEEDSIGNER` (the baked icon font that has the dice glyphs). Without the flag the keys
 fall back to Inconsolata and render blank.
 
-The CPython binding `py_keyboard_screen` (`native/python_bindings/module.cpp`) is a **pure
+The CPython binding `py_keyboard_screen` (`native/python_bindings/screens.cpp`) is a **pure
 pass-through**: it converts the caller's cfg dict to JSON and calls `keyboard_screen`, injecting
 nothing. So the **caller** that builds the dice-roll keyboard cfg is responsible for the font.
 

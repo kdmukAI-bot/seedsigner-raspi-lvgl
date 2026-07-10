@@ -1,7 +1,7 @@
 # Custom large-icon status screen: glyph must be in the baked hero-icon PUA range
 
 ## What "custom large icon" is
-`large_icon_status_screen` (screens repo `seedsigner.cpp`) accepts a `status_type`:
+`large_icon_status_screen` (screens repo `screens/large_icon_status_screen.cpp`) accepts a `status_type`:
 `"success" | "warning" | "dire_warning" | "error"` select a baked icon + color, and
 `"custom"` lets the **caller** supply the hero glyph and color at call time via
 `cfg["icon"]` (a raw glyph string, same convention as button/top-nav icons) and
@@ -11,7 +11,7 @@ point.
 
 ## It needs no new Pi binding
 It is a *mode* of an already-bound screen, not a new screen. The CPython binding
-`py_large_icon_status_screen` (`native/python_bindings/module.cpp`) is a **pure
+`py_large_icon_status_screen` (`native/python_bindings/screens.cpp`) is a **pure
 pass-through**: it converts the caller's cfg dict to JSON and calls
 `large_icon_status_screen`, injecting nothing. So `status_type:"custom"` + `icon` +
 `icon_color` already reach the native screen through the existing binding — no C change,

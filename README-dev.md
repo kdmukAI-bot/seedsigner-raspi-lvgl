@@ -27,11 +27,10 @@ See `docs/pi-hardware-test.md`.
 
 The build uses a pre-built base image containing a pinned Python toolchain and
 ARMv6 compiler, ensuring reproducible builds across local dev machines and CI.
-The image is mirrored to two registries: **GHCR**
-(`ghcr.io/kdmukai-bot/...`), pulled by GitHub Actions, and the **GitLab
-container registry** (`registry.gitlab.com/kdmukai-bot/...`), pulled by GitLab
-CI, Forgejo CI, and local `run_build.sh`. It is built and published **locally**
-(see "Rebuilding and publishing the base image" below).
+**GHCR** (`ghcr.io/kdmukai-bot/...`) is the primary registry — pulled by GitHub
+Actions, GitLab CI, Forgejo CI, and local `run_build.sh` alike; the GitLab and
+Codeberg registries hold secondary mirror copies. The image is built and
+published **locally** (see "Rebuilding and publishing the base image" below).
 
 ### Build caching
 
@@ -61,10 +60,10 @@ rarely — only on a Python or system-toolchain bump — so a manual local publi
 a worthwhile trade. Publish to all three registries so every consumer (and
 mirror) stays in sync:
 
-| Registry | Pulled by |
-|----------|-----------|
-| `ghcr.io/kdmukai-bot/seedsigner-raspi-lvgl/python-armv6:py310-dev` | GitHub Actions (`.github/workflows/build.yml`) |
-| `registry.gitlab.com/kdmukai-bot/seedsigner-raspi-lvgl/python-armv6:py310-dev` | GitLab CI, Forgejo CI, local `run_build.sh` |
+| Registry | Role |
+|----------|------|
+| `ghcr.io/kdmukai-bot/seedsigner-raspi-lvgl/python-armv6:py310-dev` | primary — pulled by all CI configs and local `run_build.sh` |
+| `registry.gitlab.com/kdmukai-bot/seedsigner-raspi-lvgl/python-armv6:py310-dev` | mirror (fallback via `IMAGE_TAG=` override) |
 | `codeberg.org/kdmukai-bot/seedsigner-raspi-lvgl/python-armv6:py310-dev` | mirror (kept in sync across the bot's forges) |
 
 **Creating the publish tokens (one-time).** You need one token per registry,

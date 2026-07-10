@@ -1,142 +1,77 @@
 name: build
 
+# Read-only: the workflow only pulls the GHCR base image and uploads run-local
+# artifacts; nothing writes to the repo or packages.
+permissions:
+  contents: read
+  packages: read
+
 on:
   workflow_dispatch:
-    inputs:
-      build_profile:
-        description: "Build profile"
-        required: true
-        type: choice
-        options:
-          - dev
-          - prod
-        default: dev
-      python_major:
-        description: "Python major/minor line"
-        required: true
-        type: choice
-        options:
-          - "3.10"
-          - "3.11"
-          - "3.12"
-        default: "3.10"
   push:
     branches: [ main ]
     paths:
       - '.github/workflows/build.yml'
       - 'run_build.sh'
-      - 'docker/build_steps.sh'
+      - 'docker/**'
+      - 'scripts/ci-preflight.sh'
       - 'setup.py'
+      - 'pyproject.toml'
       - 'versions.lock.toml'
       - 'native/**'
+      - 'tests/**'
       - 'sources/seedsigner-lvgl-screens'  # submodule pointer bump (new screens)
   pull_request:
     paths:
       - '.github/workflows/build.yml'
       - 'run_build.sh'
-      - 'docker/build_steps.sh'
+      - 'docker/**'
+      - 'scripts/ci-preflight.sh'
       - 'setup.py'
+      - 'pyproject.toml'
       - 'versions.lock.toml'
       - 'native/**'
+      - 'tests/**'
       - 'sources/seedsigner-lvgl-screens'  # submodule pointer bump (new screens)
+
+env:
+  PY_SERIES: py310-dev
+  # Bot-hosted public base image: kdmukai-bot has the GHCR package-create perms
+  # the kdmukai personal account lacks, so every context (upstream pushes,
+  # bot-fork pushes, fork PRs) pulls this one public tag.
+  IMAGE_TAG: ghcr.io/kdmukai-bot/seedsigner-raspi-lvgl/python-armv6:py310-dev
 
 jobs:
   build-armv6:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - name: Checkout seedsigner-raspi-lvgl
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Resolve image tag
-        id: cfg
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
-            BUILD_PROFILE='${{ github.event.inputs.build_profile }}'
-            PY_MAJOR='${{ github.event.inputs.python_major }}'
-          else
-            BUILD_PROFILE='dev'
-            PY_MAJOR='3.10'
-          fi
-
-          case "${PY_MAJOR}" in
-            3.10) PY_SERIES_BASE='py310' ;;
-            3.11) PY_SERIES_BASE='py311' ;;
-            3.12) PY_SERIES_BASE='py312' ;;
-            *)
-              echo "Unsupported python_major: ${PY_MAJOR}" >&2
-              exit 2
-              ;;
-          esac
-
-          case "${BUILD_PROFILE}" in
-            dev) PY_SERIES="${PY_SERIES_BASE}-dev" ;;
-            prod) PY_SERIES="${PY_SERIES_BASE}" ;;
-            *)
-              echo "Unsupported build_profile: ${BUILD_PROFILE}" >&2
-              exit 3
-              ;;
-          esac
-
-          if [[ "${BUILD_PROFILE}" == "dev" && "${PY_SERIES}" != *-dev ]]; then
-            echo "Profile/tag mismatch: dev profile requires -dev series" >&2
-            exit 4
-          fi
-          if [[ "${BUILD_PROFILE}" == "prod" && "${PY_SERIES}" == *-dev ]]; then
-            echo "Profile/tag mismatch: prod profile must not include -dev series" >&2
-            exit 5
-          fi
-
-          # Standardize on the bot-hosted base image: it is published (and made
-          # public) under kdmukai-bot, which has the GHCR package-create perms the
-          # kdmukai personal account lacks. Pinning the owner here means every
-          # context — upstream pushes, bot-fork pushes, and fork PRs into kdmukai —
-          # pulls the one public image instead of an owner-relative tag that only
-          # exists under one account.
-          IMAGE_TAG="ghcr.io/kdmukai-bot/seedsigner-raspi-lvgl/python-armv6:${PY_SERIES}"
-
-          {
-            echo "build_profile=${BUILD_PROFILE}"
-            echo "python_major=${PY_MAJOR}"
-            echo "py_series=${PY_SERIES}"
-            echo "image_tag=${IMAGE_TAG}"
-          } >> "$GITHUB_OUTPUT"
-
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
-      - name: Pull base image
-        shell: bash
-        run: |
-          set -euo pipefail
-          docker pull --platform linux/arm/v6 "${{ steps.cfg.outputs.image_tag }}"
-
       - name: Preflight dependency path check
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -d "${GITHUB_WORKSPACE}/sources/seedsigner-lvgl-screens/components/seedsigner/screens"
-          test -f "${GITHUB_WORKSPACE}/sources/seedsigner-lvgl-screens/third_party/lvgl/lvgl.h"
+        run: bash scripts/ci-preflight.sh
+
+      - name: Pull base image
+        run: docker pull --platform linux/arm/v6 "${IMAGE_TAG}"
 
       - name: Restore ccache
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/.ci-ccache
-          key: ccache-build-${{ steps.cfg.outputs.py_series }}-${{ hashFiles('setup.py', 'versions.lock.toml') }}
+          key: ccache-build-${{ env.PY_SERIES }}-${{ hashFiles('setup.py', 'versions.lock.toml') }}
           restore-keys: |
-            ccache-build-${{ steps.cfg.outputs.py_series }}-
+            ccache-build-${{ env.PY_SERIES }}-
 
       - name: Build ARMv6 extension
         env:
           WS_ROOT: ${{ github.workspace }}
-          IMAGE_TAG: ${{ steps.cfg.outputs.image_tag }}
           PLATFORM: linux/arm/v6
-          SEEDSIGNER_LVGL_SCREENS_DIR: /workspace/sources/seedsigner-lvgl-screens
-          LVGL_ROOT: /workspace/sources/seedsigner-lvgl-screens/third_party/lvgl
           CCACHE_HOST_DIR: ${{ github.workspace }}/.ci-ccache
         run: |
           mkdir -p "${CCACHE_HOST_DIR}"
@@ -154,12 +89,13 @@ jobs:
       - name: Upload extension artifact
         uses: actions/upload-artifact@v4
         with:
-          name: build-${{ steps.cfg.outputs.py_series }}-${{ github.sha }}
+          name: build-${{ env.PY_SERIES }}-${{ github.sha }}
           path: ${{ steps.art.outputs.artifact }}
           if-no-files-found: error
 
       - name: Upload build logs
         uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: build-logs-${{ github.run_id }}
           path: ${{ github.workspace }}/logs/

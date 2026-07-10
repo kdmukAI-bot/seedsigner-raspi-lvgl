@@ -18,3 +18,4 @@ logs/
 qemu_python*.core
 CLAUDE.md
 .claude/
+.claude-auto-commit

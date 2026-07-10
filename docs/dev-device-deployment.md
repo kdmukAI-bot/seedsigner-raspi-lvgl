@@ -48,10 +48,11 @@ python3 -c "import sys; print('/home/pi/seedsigner-raspi-lvgl/src' in sys.path)"
 ### Why not `pip install` the raspi-lvgl package?
 
 `setup.py` declares the extension as a **from-source build** — its source list is
-`module.cpp` + `seedsigner.cpp` + a `glob` of the *entire* LVGL C library. So
+the `native/python_bindings/*.cpp` bindings + every portable screen source + a
+`glob` of the *entire* LVGL C library. So
 `pip install .` / `pip install -e .` compiles all of LVGL **on whatever machine
 runs it**. On a single-core ARMv6 Pi Zero with 512 MB RAM that is impractically
-slow and can OOM, it requires the `sources/seedsigner-c-modules` submodule fully
+slow and can OOM, it requires the `sources/seedsigner-lvgl-screens` submodule fully
 checked out plus a C++17 toolchain, and it throws away the cross-compiled `.so`
 that the Docker QEMU build already produced. The whole point of the cross-compile
 flow is to **avoid** building on-device. The `.pth` pointed at the prebuilt
@@ -147,5 +148,4 @@ Only `src/` is needed under `seedsigner-raspi-lvgl/` at runtime. The build
 scaffolding (`docker/`, `scripts/`, `native/`, `sources/`, `cmake/`, `setup.py`,
 etc.) is host-only and can be removed from the device — it is never imported, and
 the host repo remains the source of truth. Deliberately kept as on-device
-diagnostics: `tests/` (e.g. `tests/pi_input_hardware_test.py`) and
-`native_spi_sweep.py`.
+diagnostics: `tests/` (e.g. `tests/pi_input_hardware_test.py`).

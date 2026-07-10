@@ -27,8 +27,10 @@ if [ -f "$REPO_ROOT/.env" ]; then set -a; . "$REPO_ROOT/.env"; set +a; fi
 # --- Config (env-driven) -----------------------------------------------------
 : "${SS_DEVICE:?set SS_DEVICE (e.g. pi@seedsigner.local) — see .env.example}"
 : "${SS_APP_DIR:?set SS_APP_DIR — the seedsigner app checkout root — see .env.example}"
-# The .so built by this repo (default: newest in src/).
-SS_SO_PATH="${SS_SO_PATH:-$(ls -1t "$REPO_ROOT"/src/seedsigner_lvgl_screens*.so 2>/dev/null | head -n1)}"
+# The .so built by this repo (default: newest in src/). The `|| true` keeps a
+# missing .so from killing the script here via pipefail+set -e — the preflight
+# below owns that error and prints an actionable message.
+SS_SO_PATH="${SS_SO_PATH:-$(ls -1t "$REPO_ROOT"/src/seedsigner_lvgl_screens*.so 2>/dev/null | head -n1 || true)}"
 # Device-side layout (standard SeedSigner Pi paths; override only for an odd device).
 SS_DEVICE_APP_DIR="${SS_DEVICE_APP_DIR:-/home/pi/seedsigner/src}"
 SS_DEVICE_SO_DIR="${SS_DEVICE_SO_DIR:-/home/pi/seedsigner-raspi-lvgl/src}"
@@ -63,4 +65,6 @@ fi
 
 echo ""
 echo "==> Deployed. Restart SeedSigner on the device to pick up the changes:"
-echo "    ssh $SS_DEVICE 'pkill -f \"python3 -u main.py\"; cd $SS_DEVICE_APP_DIR && setsid nohup python3 -u main.py </dev/null >/tmp/ss_run.log 2>&1 &'"
+# The ^ anchor keeps pkill from matching the ssh wrapper's own command line
+# (an unanchored pattern kills the ssh session itself).
+echo "    ssh $SS_DEVICE 'pkill -f \"^python3 -u main.py\"; cd $SS_DEVICE_APP_DIR && setsid nohup python3 -u main.py </dev/null >/tmp/ss_run.log 2>&1 &'"

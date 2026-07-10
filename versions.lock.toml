@@ -1,6 +1,15 @@
+# Pin set for the ARMv6 extension build. Consumed by docker/build_steps.sh,
+# which validates [target_abi] against the container's Python + the device
+# capture (docs/abi/dev-pi-abi.json) and exports [toolchain] as the codegen
+# flags setup.py applies (ARMV6_* env).
+
 [target_abi]
 python_soabi = "cpython-310-arm-linux-gnueabihf"
 python_ext_suffix = ".cpython-310-arm-linux-gnueabihf.so"
+# Ceilings for the runtime-compat gates in build_steps.sh (dev Pi ships
+# glibc 2.28; libstdc++ is linked statically, so GLIBCXX rarely appears).
+max_glibc = "GLIBC_2.28"
+max_glibcxx = "GLIBCXX_3.4.21"
 
 [toolchain]
 arch = "armv6zk"
@@ -9,9 +18,11 @@ float_abi = "hard"
 fpu = "vfp"
 
 [python]
+# Interpreter baked into the py310-dev base image (docker/build_base_image.sh
+# PYTHON_VERSION default must match).
 py310 = "3.10.10"
-py311 = "3.11.x"
-py312 = "3.12.x"
 
 [build_tools]
-ccache = "required"
+# ccache is baked into the base image; build_steps.sh falls back to plain
+# gcc/g++ when absent (slower, still correct).
+ccache = "recommended"
