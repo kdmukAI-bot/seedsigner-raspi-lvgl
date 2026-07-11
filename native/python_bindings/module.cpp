@@ -11,6 +11,7 @@ static PyMethodDef methods[] = {
     {"lvgl_init", (PyCFunction)py_lvgl_init, METH_VARARGS | METH_KEYWORDS, "Initialize LVGL runtime."},
     {"lvgl_shutdown", py_lvgl_shutdown, METH_NOARGS, "Shutdown LVGL runtime."},
     {"set_resolution", (PyCFunction)py_set_resolution, METH_VARARGS | METH_KEYWORDS, "Switch LVGL display resolution (e.g. 240x240 to 320x240)."},
+    {"display_size", py_display_size, METH_NOARGS, "display_size(): (width, height) of the active LVGL display profile."},
     {"lvgl_pump", (PyCFunction)py_lvgl_pump, METH_VARARGS | METH_KEYWORDS, "Pump LVGL timers/input for duration_ms."},
     {"set_flush_callback", py_set_flush_callback, METH_VARARGS, "Set display flush callback(area, bytes)."},
     {"save_screen", py_save_screen, METH_NOARGS, "Save active LVGL screen for later restore."},
@@ -82,6 +83,7 @@ static PyMethodDef methods[] = {
     // --- Debug helpers ---------------------------------------------------------
     {"_debug_last_path", py_debug_last_path, METH_NOARGS, "Debug helper for bridge path."},
     {"_debug_emit_result", py_debug_emit_result, METH_VARARGS, "Debug helper to inject callback-like events."},
+    {"_debug_emit_qr_density", py_debug_emit_qr_density, METH_VARARGS, "Debug helper to fire the on_qr_density callback (px_per_module) into the result queue."},
     {NULL, NULL, 0, NULL},
 };
 

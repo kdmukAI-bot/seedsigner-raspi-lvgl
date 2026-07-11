@@ -51,6 +51,7 @@ truncated to 255 bytes.
 | `topnav_power` | `("topnav_power", -1, "power")` | Top-nav power activated. |
 | `text_entered` | `("text_entered", -1, text)` | Text-entry screen confirmed (passphrase, keyboard, mnemonic word). |
 | `qr_brightness` | `("qr_brightness", value, "")` | qr_display_screen exit: final brightness (31..255) for persisting `SETTING__QR_BRIGHTNESS`; emitted just before the trailing `topnav_back`. |
+| `qr_density` | `("qr_density", px_per_module, "")` | qr_display_screen density UI (`px_per_module`, 3..6). Emitted on **every** density change and once on exit (just before the trailing `topnav_back`). The host re-resolves `(vertical_resolution, px_per_module) → max_fragment_len`, restarts the animated-QR fountain via `qr_display_set_frame()`, and persists `SETTING__QR_DENSITY`. |
 
 The `label` is informational only — never dispatch on it. The C side signals
 outcomes through the index slot using the reserved codes in `seedsigner.h`
@@ -68,6 +69,7 @@ above before Python sees them.
 | `lvgl_shutdown()` | Tear down LVGL. |
 | `lvgl_pump(duration_ms=10, sleep_ms=1)` | Advance LVGL timers/animations/input for the duration. Raises pending `KeyboardInterrupt`. |
 | `set_resolution(width, height)` | Switch display profile (240x240 ↔ 320x240). Deletes all live screens. |
+| `display_size()` | `(width, height)` of the active display profile. Raises `RuntimeError` before `lvgl_init()`. Lets the app read `vertical_resolution` identically on Pi and ESP32. |
 | `native_display_init(width=240, height=240, dc_pin=25, rst_pin=27, bl_pin=24, spi_path="/dev/spidev0.0", spi_speed_hz=62500000, bgr=True, lvgl_swap_bytes=True)` | Init the ST7789 SPI panel + GPIO output lines + GPIO input; selects the native flush path. |
 | `native_display_shutdown()` | Clear panel to black, release SPI + GPIO. |
 | `native_input_init()` | Claim only the input lines (display owned by an external driver). |
@@ -76,7 +78,7 @@ above before Python sees them.
 | `clear_screen()` | Load an all-black screen. |
 | `set_screensaver_timeout(ms)` | Idle ms before the native screensaver overlay activates; 0 disables. Per-screen opt-out via cfg `allow_screensaver: false`. |
 | `native_display_test_pattern()` / `native_debug_config(...)` | Hardware bring-up helpers. |
-| `_debug_last_path()` / `_debug_emit_result(label, index)` | Test helpers: build-path breadcrumb; inject a fake callback event. |
+| `_debug_last_path()` / `_debug_emit_result(label, index)` / `_debug_emit_qr_density(px_per_module)` | Test helpers: build-path breadcrumb; inject a fake button event; fire the `on_qr_density` callback into the queue. |
 
 Locale methods (`discover_locale_packs`, `list_available_locales`,
 `set_locale`, `unload_locale`): see `docs/language-support.md`.

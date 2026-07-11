@@ -276,6 +276,26 @@ PyObject *py_set_resolution(PyObject *self, PyObject *args, PyObject *kwargs) {
     Py_RETURN_NONE;
 }
 
+// display_size() -> (width, height) of the active display profile.
+//
+// Gate on the runtime: active_profile() aborts() the process if no profile is set
+// (a profile is only installed by lvgl_init()/set_resolution()), so raise a
+// catchable RuntimeError for a premature call — same guard as locale_packs.cpp.
+// Lets the app read vertical_resolution the same way on Pi and ESP32 (it just
+// calls display_size() regardless of target).
+PyObject *py_display_size(PyObject *self, PyObject *args) {
+    (void)self;
+    (void)args;
+    try {
+        require_lvgl_runtime();
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+    const DisplayProfile &p = active_profile();
+    return Py_BuildValue("(ii)", p.width, p.height);
+}
+
 PyObject *py_lvgl_pump(PyObject *self, PyObject *args, PyObject *kwargs) {
     (void)self;
     static const char *kwlist[] = {"duration_ms", "sleep_ms", NULL};

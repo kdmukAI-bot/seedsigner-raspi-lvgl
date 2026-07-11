@@ -22,6 +22,12 @@ enum result_kind_t {
     // on_qr_brightness hook, carried in the index slot so the host can persist
     // SETTING__QR_BRIGHTNESS. Emitted just before the trailing topnav_back.
     RESULT_QR_BRIGHTNESS = 4,
+    // qr_display_screen's density UI reports the chosen module scale
+    // (px_per_module, 3..6) via the on_qr_density hook, carried in the index slot
+    // — fired on every density change and once on exit. The host remaps
+    // (vertical_resolution, px_per_module) -> max_fragment_len and restarts the
+    // animated-QR fountain.
+    RESULT_QR_DENSITY = 5,
 };
 
 typedef struct {
@@ -64,6 +70,8 @@ static const char *kind_to_event_name(result_kind_t kind) {
             return "text_entered";
         case RESULT_QR_BRIGHTNESS:
             return "qr_brightness";
+        case RESULT_QR_DENSITY:
+            return "qr_density";
         case RESULT_BUTTON_SELECTED:
         default:
             return "button_selected";
@@ -118,6 +126,21 @@ extern "C" void seedsigner_lvgl_on_qr_brightness(uint8_t brightness) {
     queue_push(RESULT_QR_BRIGHTNESS, static_cast<int>(brightness), "");
 }
 
+// QR density hook (overrides the weak default in the screens library). The
+// animated-QR density UI fires this on every px/module change AND once on exit
+// (px_per_module, 3..6); the host re-resolves max_fragment_len, restarts the
+// fountain via qr_display_set_frame(), and persists SETTING__QR_DENSITY.
+// Surfaced as ("qr_density", value, ""). On exit the screen emits brightness,
+// then density, then topnav_back — this FIFO queue preserves that order.
+//
+// Signature verified against the screens repo (seedsigner.h):
+// `void seedsigner_lvgl_on_qr_density(uint8_t px_per_module)` — matches. Still
+// inert until this repo's submodule is bumped past c5a075e to a commit carrying
+// the symbol + call site (see docs/qr-density-callback-todo.md).
+extern "C" void seedsigner_lvgl_on_qr_density(uint8_t px_per_module) {
+    queue_push(RESULT_QR_DENSITY, static_cast<int>(px_per_module), "");
+}
+
 PyObject *py_poll_for_result(PyObject *self, PyObject *args) {
     (void)self;
     (void)args;
@@ -150,5 +173,18 @@ PyObject *py_debug_emit_result(PyObject *self, PyObject *args) {
         return NULL;
     }
     seedsigner_lvgl_on_button_selected(index, label);
+    Py_RETURN_NONE;
+}
+
+// Test helper: fire the on_qr_density callback from Python so the density result
+// path is exercisable before the screens library ships a real call site. Mirrors
+// _debug_emit_result for the button path.
+PyObject *py_debug_emit_qr_density(PyObject *self, PyObject *args) {
+    (void)self;
+    unsigned int px_per_module = 0;
+    if (!PyArg_ParseTuple(args, "I", &px_per_module)) {
+        return NULL;
+    }
+    seedsigner_lvgl_on_qr_density(static_cast<uint8_t>(px_per_module));
     Py_RETURN_NONE;
 }
