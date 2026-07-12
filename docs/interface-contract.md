@@ -51,7 +51,7 @@ truncated to 255 bytes.
 | `topnav_power` | `("topnav_power", -1, "power")` | Top-nav power activated. |
 | `text_entered` | `("text_entered", -1, text)` | Text-entry screen confirmed (passphrase, keyboard, mnemonic word). |
 | `qr_brightness` | `("qr_brightness", value, "")` | qr_display_screen exit: final brightness (31..255) for persisting `SETTING__QR_BRIGHTNESS`; emitted just before the trailing `topnav_back`. |
-| `qr_density` | `("qr_density", px_per_module, "")` | qr_display_screen density UI (`px_per_module`, 3..6). Emitted on **every** density change and once on exit (just before the trailing `topnav_back`). The host re-resolves `(vertical_resolution, px_per_module) → max_fragment_len`, restarts the animated-QR fountain via `qr_display_set_frame()`, and persists `SETTING__QR_DENSITY`. |
+| `qr_density` | `("qr_density", px_per_module, "")` | qr_display_screen density UI (`px_per_module`, 2..6). Emitted on **every** density change and once on exit (just before the trailing `topnav_back`). The host re-resolves `(vertical_resolution, px_per_module) → max_fragment_len`, restarts the animated-QR fountain via `qr_display_set_frame()`, and persists `SETTING__QR_DENSITY`. |
 
 The `label` is informational only — never dispatch on it. The C side signals
 outcomes through the index slot using the reserved codes in `seedsigner.h`

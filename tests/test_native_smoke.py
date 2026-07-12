@@ -204,8 +204,14 @@ def test_seed_finalize_screen_renders():
     })
     assert mod._debug_last_path() == "compiled"
 
-    # Bare cfg still renders (title/button_list default in the native screen).
-    mod.seed_finalize_screen({"fingerprint": "0abc1234"})
+    # Minimal cfg renders. The conformance refactor removed English content
+    # defaults, so the screen now requires its localized labels + button_list.
+    mod.seed_finalize_screen({
+        "top_nav": {"title": "Finalize Seed"},
+        "fingerprint": "0abc1234",
+        "fingerprint_label": "fingerprint",
+        "button_list": ["Done"],
+    })
     assert mod._debug_last_path() == "compiled"
 
     # fingerprint is required — the native side raises without it.

@@ -23,7 +23,7 @@ enum result_kind_t {
     // SETTING__QR_BRIGHTNESS. Emitted just before the trailing topnav_back.
     RESULT_QR_BRIGHTNESS = 4,
     // qr_display_screen's density UI reports the chosen module scale
-    // (px_per_module, 3..6) via the on_qr_density hook, carried in the index slot
+    // (px_per_module, 2..6) via the on_qr_density hook, carried in the index slot
     // — fired on every density change and once on exit. The host remaps
     // (vertical_resolution, px_per_module) -> max_fragment_len and restarts the
     // animated-QR fountain.
@@ -128,15 +128,15 @@ extern "C" void seedsigner_lvgl_on_qr_brightness(uint8_t brightness) {
 
 // QR density hook (overrides the weak default in the screens library). The
 // animated-QR density UI fires this on every px/module change AND once on exit
-// (px_per_module, 3..6); the host re-resolves max_fragment_len, restarts the
+// (px_per_module, 2..6); the host re-resolves max_fragment_len, restarts the
 // fountain via qr_display_set_frame(), and persists SETTING__QR_DENSITY.
 // Surfaced as ("qr_density", value, ""). On exit the screen emits brightness,
 // then density, then topnav_back — this FIFO queue preserves that order.
 //
 // Signature verified against the screens repo (seedsigner.h):
-// `void seedsigner_lvgl_on_qr_density(uint8_t px_per_module)` — matches. Still
-// inert until this repo's submodule is bumped past c5a075e to a commit carrying
-// the symbol + call site (see docs/qr-density-callback-todo.md).
+// `void seedsigner_lvgl_on_qr_density(uint8_t px_per_module)`. Live as of the
+// sources/seedsigner-lvgl-screens bump to the density-redesign main — the screen
+// fires this from qr_display_screen's density slider (opt-in via density_control).
 extern "C" void seedsigner_lvgl_on_qr_density(uint8_t px_per_module) {
     queue_push(RESULT_QR_DENSITY, static_cast<int>(px_per_module), "");
 }
