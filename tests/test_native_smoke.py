@@ -204,8 +204,14 @@ def test_seed_finalize_screen_renders():
     })
     assert mod._debug_last_path() == "compiled"
 
-    # Bare cfg still renders (title/button_list default in the native screen).
-    mod.seed_finalize_screen({"fingerprint": "0abc1234"})
+    # Minimal cfg renders. The conformance refactor removed English content
+    # defaults, so the screen now requires its localized labels + button_list.
+    mod.seed_finalize_screen({
+        "top_nav": {"title": "Finalize Seed"},
+        "fingerprint": "0abc1234",
+        "fingerprint_label": "fingerprint",
+        "button_list": ["Done"],
+    })
     assert mod._debug_last_path() == "compiled"
 
     # fingerprint is required — the native side raises without it.
@@ -451,5 +457,40 @@ def test_settings_locale_picker_screen_renders():
     # cfg must be a dict.
     with pytest.raises(RuntimeError):
         mod.settings_locale_picker_screen("not a dict")
+
+    mod.lvgl_shutdown()
+
+
+def test_qr_density_result_event():
+    # The on_qr_density host callback (fired by the animated-QR density UI) bridges
+    # to a ("qr_density", px_per_module, "") result — the value rides in the index
+    # slot, same plumbing as qr_brightness. _debug_emit_qr_density drives it
+    # directly since no screen fires it until the screens submodule ships the call
+    # site. Needs no runtime (queue plumbing only).
+    mod = _native_or_skip()
+    mod.clear_result_queue()
+
+    mod._debug_emit_qr_density(4)
+    assert mod.poll_for_result() == ("qr_density", 4, "")
+    assert mod.poll_for_result() is None
+
+
+def test_display_size_reports_active_profile():
+    # display_size() returns the active display profile dims. Before lvgl_init()
+    # the profile is unset — it raises rather than abort()ing the process (same
+    # guard as list_available_locales).
+    mod = _native_or_skip()
+
+    mod.lvgl_shutdown()  # force uninited state regardless of prior test leftovers
+    with pytest.raises(RuntimeError):
+        mod.display_size()
+
+    mod.lvgl_init(hor_res=240, ver_res=240)
+    assert mod.display_size() == (240, 240)
+
+    # Switching the profile is reflected; height (the density lookup key) tracks
+    # the active panel. 320x240 is the other registered Pi profile.
+    mod.set_resolution(320, 240)
+    assert mod.display_size() == (320, 240)
 
     mod.lvgl_shutdown()

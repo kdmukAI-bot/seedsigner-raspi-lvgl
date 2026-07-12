@@ -31,6 +31,10 @@ if [ -f "$REPO_ROOT/.env" ]; then set -a; . "$REPO_ROOT/.env"; set +a; fi
 # missing .so from killing the script here via pipefail+set -e — the preflight
 # below owns that error and prints an actionable message.
 SS_SO_PATH="${SS_SO_PATH:-$(ls -1t "$REPO_ROOT"/src/seedsigner_lvgl_screens*.so 2>/dev/null | head -n1 || true)}"
+# Native cUR (BC-UR) `uUR` extension, if this build produced one. Optional: an
+# absent uUR.so is a valid deploy — the app's helpers/ur2/decoder.py falls back
+# to the pure-Python decoder when `import uUR` fails.
+SS_UUR_SO_PATH="${SS_UUR_SO_PATH:-$(ls -1t "$REPO_ROOT"/src/uUR*.so 2>/dev/null | head -n1 || true)}"
 # Device-side layout (standard SeedSigner Pi paths; override only for an odd device).
 SS_DEVICE_APP_DIR="${SS_DEVICE_APP_DIR:-/home/pi/seedsigner/src}"
 SS_DEVICE_SO_DIR="${SS_DEVICE_SO_DIR:-/home/pi/seedsigner-raspi-lvgl/src}"
@@ -45,6 +49,12 @@ RSYNC=(rsync -az --exclude='__pycache__' --exclude='*.pyc' --exclude='.DS_Store'
 
 echo "==> [1/3] .so   -> $SS_DEVICE:$SS_DEVICE_SO_DIR/"
 "${RSYNC[@]}" "$SS_SO_PATH" "$SS_DEVICE:$SS_DEVICE_SO_DIR/"
+if [ -n "$SS_UUR_SO_PATH" ] && [ -f "$SS_UUR_SO_PATH" ]; then
+  echo "    + uUR -> $(basename "$SS_UUR_SO_PATH")"
+  "${RSYNC[@]}" "$SS_UUR_SO_PATH" "$SS_DEVICE:$SS_DEVICE_SO_DIR/"
+else
+  echo "    (no uUR .so found — app uses the pure-Python ur2 decoder fallback)"
+fi
 
 echo "==> [2/3] app   -> $SS_DEVICE:$SS_DEVICE_APP_DIR/seedsigner/"
 "${RSYNC[@]}" --exclude='settings.json' --exclude='.git' \

@@ -95,6 +95,7 @@ bool fs_pack_provider(const char *locale, const char *file,
 PyObject *py_lvgl_init(PyObject *self, PyObject *args, PyObject *kwargs);
 PyObject *py_lvgl_shutdown(PyObject *self, PyObject *args);
 PyObject *py_set_resolution(PyObject *self, PyObject *args, PyObject *kwargs);
+PyObject *py_display_size(PyObject *self, PyObject *args);
 PyObject *py_lvgl_pump(PyObject *self, PyObject *args, PyObject *kwargs);
 PyObject *py_set_flush_callback(PyObject *self, PyObject *args);
 PyObject *py_save_screen(PyObject *self, PyObject *args);
@@ -116,6 +117,7 @@ PyObject *py_native_input_init(PyObject *self, PyObject *args);
 PyObject *py_poll_for_result(PyObject *self, PyObject *args);
 PyObject *py_clear_result_queue(PyObject *self, PyObject *args);
 PyObject *py_debug_emit_result(PyObject *self, PyObject *args);
+PyObject *py_debug_emit_qr_density(PyObject *self, PyObject *args);
 
 // locale_packs.cpp
 PyObject *py_set_locale(PyObject *self, PyObject *args);

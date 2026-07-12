@@ -120,7 +120,7 @@ python -c "import setuptools, pytest" 2>/dev/null || python -m pip install --dis
 # inplace build copies the extension there. Local trees carry src/ from prior
 # builds, which is why a missing src/ only ever surfaced on a clean CI clone.
 mkdir -p "${ROOT_DIR}/src"
-rm -f "${ROOT_DIR}"/src/seedsigner_lvgl_screens*.so
+rm -f "${ROOT_DIR}"/src/seedsigner_lvgl_screens*.so "${ROOT_DIR}"/src/uUR*.so
 
 # Force a fresh native extension build so architecture flags are applied deterministically.
 # Build artifacts go to /tmp/build to keep the project tree clean.
@@ -134,14 +134,18 @@ python "${ROOT_DIR}/setup.py" build_ext --inplace --force --parallel "$(nproc)" 
 # on-device manual harnesses, not collectable tests).
 PYTHONPATH="${ROOT_DIR}/src" python -m pytest -q -p no:cacheprovider "${ROOT_DIR}/tests"
 
-ART="$(find "${ROOT_DIR}" -maxdepth 2 -type f -name 'seedsigner_lvgl_screens*.so' | sort | tail -n1 || true)"
-if [[ -z "${ART}" ]]; then
-  echo "ERROR: no built extension artifact found" >&2
-  exit 6
-fi
+# Ceilings from versions.lock.toml (override via MAX_GLIBC{,XX} as needed).
+MAX_GLIBCXX="${MAX_GLIBCXX:-${LOCK_MAX_GLIBCXX}}"
+MAX_GLIBC="${MAX_GLIBC:-${LOCK_MAX_GLIBC}}"
 
-# Verify the artifact carries the target EXT_SUFFIX from the ABI capture.
-"${PYTHON_BIN}" - <<'PY' "${ABI_JSON}" "${ART}"
+# Run every runtime-compat gate on one built .so: target EXT_SUFFIX, ARMv6 CPU
+# arch, and the GLIBCXX/GLIBC symbol-version ceilings (a too-new ref only ever
+# fails at dlopen on the device). Applied to BOTH extensions this build emits.
+verify_artifact() {
+  local ART="$1" label="$2"
+  echo "[build] --- verifying ${label}: $(basename "${ART}") ---"
+
+  "${PYTHON_BIN}" - <<'PY' "${ABI_JSON}" "${ART}"
 import json,os,sys
 abi_json,art=sys.argv[1:3]
 with open(abi_json,'r',encoding='utf-8') as f:
@@ -152,44 +156,55 @@ if ext and not art.endswith(ext):
 print('[build] artifact suffix OK')
 PY
 
-file "${ART}" || true
+  file "${ART}" || true
 
-if command -v readelf >/dev/null 2>&1; then
-  READELF_OUT="$(readelf -A "${ART}")"
-  echo "${READELF_OUT}"
-  if ! echo "${READELF_OUT}" | grep -Eq 'Tag_CPU_arch: v6|Tag_CPU_arch: v6KZ'; then
-    echo "ERROR: artifact CPU arch attribute is not ARMv6-compatible" >&2
-    exit 7
+  if command -v readelf >/dev/null 2>&1; then
+    local READELF_OUT
+    READELF_OUT="$(readelf -A "${ART}")"
+    echo "${READELF_OUT}"
+    if ! echo "${READELF_OUT}" | grep -Eq 'Tag_CPU_arch: v6|Tag_CPU_arch: v6KZ'; then
+      echo "ERROR: ${label} artifact CPU arch attribute is not ARMv6-compatible" >&2
+      exit 7
+    fi
   fi
-fi
 
-# Runtime compatibility gate for libstdc++ symbols.
-# Ceiling comes from versions.lock.toml; override via MAX_GLIBCXX as needed.
-MAX_GLIBCXX="${MAX_GLIBCXX:-${LOCK_MAX_GLIBCXX}}"
-FOUND_GLIBCXX="$(strings "${ART}" | grep -o 'GLIBCXX_[0-9.]*' | sort -V | tail -n1 || true)"
-if [[ -n "${FOUND_GLIBCXX}" ]]; then
-  echo "[build] max_glibcxx_required=${FOUND_GLIBCXX} allowed=${MAX_GLIBCXX}"
-  if [[ "$(printf '%s\n%s\n' "${MAX_GLIBCXX}" "${FOUND_GLIBCXX}" | sort -V | tail -n1)" != "${MAX_GLIBCXX}" ]]; then
-    echo "ERROR: GLIBCXX requirement too new for target runtime: ${FOUND_GLIBCXX} > ${MAX_GLIBCXX}" >&2
-    exit 8
+  local FOUND_GLIBCXX
+  FOUND_GLIBCXX="$(strings "${ART}" | grep -o 'GLIBCXX_[0-9.]*' | sort -V | tail -n1 || true)"
+  if [[ -n "${FOUND_GLIBCXX}" ]]; then
+    echo "[build] ${label} max_glibcxx_required=${FOUND_GLIBCXX} allowed=${MAX_GLIBCXX}"
+    if [[ "$(printf '%s\n%s\n' "${MAX_GLIBCXX}" "${FOUND_GLIBCXX}" | sort -V | tail -n1)" != "${MAX_GLIBCXX}" ]]; then
+      echo "ERROR: ${label} GLIBCXX requirement too new for target runtime: ${FOUND_GLIBCXX} > ${MAX_GLIBCXX}" >&2
+      exit 8
+    fi
+  else
+    echo "[build] ${label} no GLIBCXX symbols found (pure C / static libstdc++)"
   fi
-else
-  echo "[build] no GLIBCXX symbols found in artifact (likely static libstdc++)"
-fi
 
-# Runtime compatibility gate for glibc symbol versions: the bullseye builder has
-# glibc 2.31 but the target Pi runs 2.28, so a GLIBC_2.29+ versioned reference
-# only ever fails at dlopen on the device. Ceiling from versions.lock.toml.
-MAX_GLIBC="${MAX_GLIBC:-${LOCK_MAX_GLIBC}}"
-FOUND_GLIBC="$(strings "${ART}" | grep -o 'GLIBC_[0-9.]*' | sort -V | tail -n1 || true)"
-if [[ -n "${FOUND_GLIBC}" ]]; then
-  echo "[build] max_glibc_required=${FOUND_GLIBC} allowed=${MAX_GLIBC}"
-  if [[ "$(printf '%s\n%s\n' "${MAX_GLIBC}" "${FOUND_GLIBC}" | sort -V | tail -n1)" != "${MAX_GLIBC}" ]]; then
-    echo "ERROR: GLIBC requirement too new for target runtime: ${FOUND_GLIBC} > ${MAX_GLIBC}" >&2
-    exit 9
+  local FOUND_GLIBC
+  FOUND_GLIBC="$(strings "${ART}" | grep -o 'GLIBC_[0-9.]*' | sort -V | tail -n1 || true)"
+  if [[ -n "${FOUND_GLIBC}" ]]; then
+    echo "[build] ${label} max_glibc_required=${FOUND_GLIBC} allowed=${MAX_GLIBC}"
+    if [[ "$(printf '%s\n%s\n' "${MAX_GLIBC}" "${FOUND_GLIBC}" | sort -V | tail -n1)" != "${MAX_GLIBC}" ]]; then
+      echo "ERROR: ${label} GLIBC requirement too new for target runtime: ${FOUND_GLIBC} > ${MAX_GLIBC}" >&2
+      exit 9
+    fi
+  else
+    echo "[build] ${label} no GLIBC versioned symbols found"
   fi
-else
-  echo "[build] no GLIBC versioned symbols found in artifact"
+}
+
+MAIN_ART="$(find "${ROOT_DIR}" -maxdepth 2 -type f -name 'seedsigner_lvgl_screens*.so' | sort | tail -n1 || true)"
+if [[ -z "${MAIN_ART}" ]]; then
+  echo "ERROR: no built seedsigner_lvgl_screens extension artifact found" >&2
+  exit 6
 fi
+verify_artifact "${MAIN_ART}" "seedsigner_lvgl_screens"
+
+UUR_ART="$(find "${ROOT_DIR}" -maxdepth 2 -type f -name 'uUR*.so' | sort | tail -n1 || true)"
+if [[ -z "${UUR_ART}" ]]; then
+  echo "ERROR: no built uUR extension artifact found" >&2
+  exit 6
+fi
+verify_artifact "${UUR_ART}" "uUR"
 
 echo "[build] OK"

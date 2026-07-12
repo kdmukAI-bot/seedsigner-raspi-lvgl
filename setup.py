@@ -173,6 +173,30 @@ seedsigner_sources = sorted(
 # the method table; see native/python_bindings/module_internal.h for the map).
 binding_sources = sorted(glob.glob(str(ROOT / "native" / "python_bindings" / "*.cpp")))
 
+# --- Native cUR (BC-UR) -> the `uUR` extension ------------------------------
+# Compiled from the sources/cUR submodule into a SEPARATE CPython module named
+# `uUR`, mirroring the ESP32 firmware's native uUR module so the app's
+# __import__("uUR") gets native BC-UR encode/decode on the Pi. Pure C (no C++,
+# no libstdc++); bundled SHA-256 (the host path — UR_USE_MBEDTLS_SHA256 is NOT
+# defined, so it uses src/sha256/sha256.c instead of mbedTLS).
+CUR_DIR = Path(os.environ.get("CUR_DIR", str(ROOT / "sources" / "cUR"))).resolve()
+if not (CUR_DIR / "python" / "uUR.c").exists():
+    raise RuntimeError(
+        f"Missing cUR CPython binding under {CUR_DIR} -- submodule not checked out "
+        f"(run: git submodule update --init sources/cUR)."
+    )
+# cUR root ('.') satisfies the binding's `src/...` includes; 'src' satisfies the
+# core's sibling includes (e.g. "sha256/sha256.h", "ur_decoder.h").
+cur_sources = [str(CUR_DIR / "python" / "uUR.c")] + sorted(
+    glob.glob(str(CUR_DIR / "src" / "*.c"))
+    + glob.glob(str(CUR_DIR / "src" / "types" / "*.c"))
+    + glob.glob(str(CUR_DIR / "src" / "sha256" / "sha256.c"))
+)
+
+# C++-only flags to strip when compiling C translation units — used by both the
+# custom build_ext (per-.c) and the pure-C uUR extension's args.
+CXX_ONLY_FLAGS = {"-std=c++17"}
+
 ext_modules = [
     Extension(
         "seedsigner_lvgl_screens",
@@ -221,10 +245,19 @@ ext_modules = [
         extra_compile_args=extra_compile_args,
         extra_link_args=extra_link_args,
         language="c++",
-    )
+    ),
+    # Native cUR -> the `uUR` module. Pure C: strip the C++-only std flag (the
+    # custom build_ext also drops it per-.c, but keep this extension's own args
+    # clean). Reuses the ARMv6 codegen + cross-build link args.
+    Extension(
+        "uUR",
+        sources=cur_sources,
+        include_dirs=[str(CUR_DIR), str(CUR_DIR / "src")],
+        extra_compile_args=[a for a in extra_compile_args if a not in CXX_ONLY_FLAGS],
+        extra_link_args=extra_link_args,
+        language="c",
+    ),
 ]
-
-CXX_ONLY_FLAGS = {"-std=c++17"}
 
 
 class build_ext(_build_ext):

@@ -1,3 +1,6 @@
 [submodule "sources/seedsigner-lvgl-screens"]
 	path = sources/seedsigner-lvgl-screens
 	url = https://github.com/kdmukai/seedsigner-lvgl-screens.git
+[submodule "sources/cUR"]
+	path = sources/cUR
+	url = git@github.com:kdmukAI-bot/cUR.git

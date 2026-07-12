@@ -21,6 +21,7 @@ on:
       - 'native/**'
       - 'tests/**'
       - 'sources/seedsigner-lvgl-screens'  # submodule pointer bump (new screens)
+      - 'sources/cUR'                      # submodule pointer bump (native cUR/uUR)
   pull_request:
     paths:
       - '.github/workflows/build.yml'
@@ -33,6 +34,7 @@ on:
       - 'native/**'
       - 'tests/**'
       - 'sources/seedsigner-lvgl-screens'  # submodule pointer bump (new screens)
+      - 'sources/cUR'                      # submodule pointer bump (native cUR/uUR)
 
 env:
   PY_SERIES: py310-dev
@@ -77,20 +79,26 @@ jobs:
           mkdir -p "${CCACHE_HOST_DIR}"
           ./run_build.sh
 
-      - name: Locate built extension
+      - name: Locate built extensions
         id: art
         shell: bash
         run: |
           set -euo pipefail
+          # `ls | head` under pipefail fails the step if either glob is empty,
+          # so both extensions must have been built.
           ART="$(ls -1 ${GITHUB_WORKSPACE}/src/seedsigner_lvgl_screens*.so | head -n1)"
+          UUR="$(ls -1 ${GITHUB_WORKSPACE}/src/uUR*.so | head -n1)"
           echo "artifact=${ART}" >> "$GITHUB_OUTPUT"
           echo "artifact_basename=$(basename "$ART")" >> "$GITHUB_OUTPUT"
+          echo "uur=${UUR}" >> "$GITHUB_OUTPUT"
 
-      - name: Upload extension artifact
+      - name: Upload extension artifacts
         uses: actions/upload-artifact@v4
         with:
           name: build-${{ env.PY_SERIES }}-${{ github.sha }}
-          path: ${{ steps.art.outputs.artifact }}
+          path: |
+            ${{ steps.art.outputs.artifact }}
+            ${{ steps.art.outputs.uur }}
           if-no-files-found: error
 
       - name: Upload build logs

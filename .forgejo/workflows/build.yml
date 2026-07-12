@@ -18,6 +18,7 @@ on:
       - 'native/**'
       - 'tests/**'
       - 'sources/seedsigner-lvgl-screens'  # submodule pointer bump (new screens)
+      - 'sources/cUR'                      # submodule pointer bump (native cUR/uUR)
   pull_request:
     paths:
       - '.forgejo/workflows/build.yml'
@@ -30,6 +31,7 @@ on:
       - 'native/**'
       - 'tests/**'
       - 'sources/seedsigner-lvgl-screens'  # submodule pointer bump (new screens)
+      - 'sources/cUR'                      # submodule pointer bump (native cUR/uUR)
 
 jobs:
   build-armv6:
@@ -55,16 +57,18 @@ jobs:
       - name: Build ARMv6 extension
         run: WS_ROOT="${GITHUB_WORKSPACE}" ./run_build.sh
 
-      - name: Verify artifact
-        run: ls -la src/seedsigner_lvgl_screens*.so
+      - name: Verify artifacts
+        run: ls -la src/seedsigner_lvgl_screens*.so src/uUR*.so
 
       # Forgejo artifact upload is best-effort; not all instances support it.
-      - name: Upload extension artifact
+      - name: Upload extension artifacts
         uses: actions/upload-artifact@v3
         if: always()
         with:
           name: build-${{ env.PY_SERIES }}
-          path: src/seedsigner_lvgl_screens*.so
+          path: |
+            src/seedsigner_lvgl_screens*.so
+            src/uUR*.so
 
       - name: Upload build logs
         uses: actions/upload-artifact@v3
