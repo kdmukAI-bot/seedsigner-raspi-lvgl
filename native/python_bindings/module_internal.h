@@ -11,6 +11,7 @@
 //   gpio_lines.cpp      — generic gpiochip-ioctl / sysfs GPIO line helpers
 //   result_queue.cpp    — host result queue + seedsigner_lvgl_on_* callbacks
 //   screens.cpp         — Python wrappers for the portable LVGL screens
+//   camera_preview.cpp  — Pi live camera-preview sink (lv_image) + portable overlay
 //   locale_packs.cpp    — language-pack discovery/loading (set_locale & co.)
 #ifndef SS_LVGL_MODULE_INTERNAL_H
 #define SS_LVGL_MODULE_INTERNAL_H
@@ -129,6 +130,19 @@ PyObject *py_list_available_locales(PyObject *self, PyObject *args);
 PyObject *py_qr_display_set_frame(PyObject *self, PyObject *args);
 PyObject *py_qr_display_is_tip_active(PyObject *self, PyObject *args);
 PyObject *py_debug_last_path(PyObject *self, PyObject *args);
+// Mark a successful build in the shared _debug_last_path breadcrumb (for peer
+// subsystems whose builders live outside screens.cpp, e.g. camera_preview.cpp).
+void mark_last_path_compiled();
+
+// camera_preview.cpp — live camera-preview scan surface (pixel sink + overlay)
+PyObject *py_camera_preview_screen(PyObject *self, PyObject *args);
+PyObject *py_camera_preview_set_frame(PyObject *self, PyObject *args);
+PyObject *py_camera_preview_set_progress(PyObject *self, PyObject *args);
+PyObject *py_camera_preview_set_scanning(PyObject *self, PyObject *args);
+PyObject *py_camera_preview_close(PyObject *self, PyObject *args);
+// Tear the live session down before lv_deinit() so its statics can't dangle into
+// the next lvgl_init(); called from lvgl_runtime_shutdown().
+void camera_preview_on_lvgl_shutdown();
 
 // screens.cpp — screen builders (all take cfg_dict except screensaver_screen)
 PyObject *py_button_list_screen(PyObject *self, PyObject *args);

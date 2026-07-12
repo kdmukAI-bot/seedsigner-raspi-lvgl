@@ -76,6 +76,17 @@ static PyMethodDef methods[] = {
     {"io_test_screen", py_io_test_screen, METH_VARARGS, "Build the hardware I/O self-test (capture pictogram + KEY1 camera / KEY2 clear / KEY3 exit labels; cfg all-optional: capturing_text/clear_label/exit_label/camera_glyph); hardware-key driven."},
     {"screensaver_screen", py_screensaver_screen, METH_NOARGS, "Build the screensaver (bouncing logo); returns immediately. Manual-test helper (the overlay manager owns the screensaver at runtime)."},
 
+    // --- Live camera-preview scan surface (camera_preview.cpp) ----------------
+    // The Pi owns the pixel plane: a full-screen RGB565 lv_image the host pushes
+    // camera frames into, with the portable camera_preview_overlay chrome on top.
+    // Drive loop: capture -> set_frame(rgb565 bytes) -> lvgl_pump; decode stays in
+    // Python and advances the overlay via set_progress (a few/sec, never per frame).
+    {"camera_preview_screen", py_camera_preview_screen, METH_VARARGS, "Build the live camera-preview scan screen (full-screen RGB565 image sink + overlay chrome). Optional cfg {'instructions_text': str} sets the hardware/joystick bottom line. Host then pushes frames with camera_preview_set_frame and progress with camera_preview_set_progress; end with camera_preview_close."},
+    {"camera_preview_set_frame", py_camera_preview_set_frame, METH_VARARGS, "Push one LVGL-native RGB565 frame (bytes, exactly width*height*2) into the live camera-preview sink. NEVER pre-swap for the panel — the flush driver owns byte order. No-op when no preview is active."},
+    {"camera_preview_set_progress", py_camera_preview_set_progress, METH_VARARGS, "camera_preview_set_progress(percent, frame_status): advance the overlay status bar (0..100) + status dot (0 none/1 added/2 repeated/3 miss). Implies scanning. A few times/sec, never per frame."},
+    {"camera_preview_set_scanning", py_camera_preview_set_scanning, METH_VARARGS, "camera_preview_set_scanning(active): toggle between the back-affordance state (instruction text) and the scanning status-bar state."},
+    {"camera_preview_close", py_camera_preview_close, METH_NOARGS, "End the camera-preview session: free the overlay handle + sink buffer. Call before loading the next screen. Idempotent."},
+
     // --- Result queue (result_queue.cpp) --------------------------------------
     {"poll_for_result", py_poll_for_result, METH_NOARGS, "Poll next result tuple or None."},
     {"clear_result_queue", py_clear_result_queue, METH_NOARGS, "Clear result queue."},

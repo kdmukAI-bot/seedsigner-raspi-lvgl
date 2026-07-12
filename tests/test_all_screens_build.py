@@ -138,6 +138,7 @@ SCREEN_MIN_CFGS = {
                       "url": "https://seedsigner.com"},
     "io_test_screen": {"top_nav": {"title": "I/O Test"}, "capturing_text": "Testing...",
                        "clear_label": "Clear", "exit_label": "Exit"},
+    "camera_preview_screen": {"instructions_text": "< back  |  Scan a QR code"},
     "screensaver_screen": None,
 }
 

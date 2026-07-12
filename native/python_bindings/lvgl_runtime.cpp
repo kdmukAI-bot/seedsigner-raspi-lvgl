@@ -132,6 +132,9 @@ static void lvgl_runtime_shutdown() {
 #if LV_USE_LOG
     LV_LOG_USER("lvgl runtime shutdown");
 #endif
+    // Tear down any live camera-preview session while its widgets + overlay handle
+    // are still valid — after lv_deinit() the statics would dangle into a re-init.
+    camera_preview_on_lvgl_shutdown();
 #if defined(LVGL_VERSION_MAJOR) && (LVGL_VERSION_MAJOR >= 8)
     lv_deinit();
 #endif

@@ -494,3 +494,45 @@ def test_display_size_reports_active_profile():
     assert mod.display_size() == (320, 240)
 
     mod.lvgl_shutdown()
+
+
+def test_camera_preview_screen_build_and_frame_push():
+    # Live camera-preview scan surface: a full-screen RGB565 image sink + the
+    # portable overlay chrome. The host builds it, pushes RGB565 frames, advances
+    # the overlay, and closes the session. Exercises the whole binding without a
+    # camera (a synthetic mid-gray frame stands in for live pixels).
+    mod = _native_or_skip()
+    mod.lvgl_init(hor_res=240, ver_res=240)
+    mod.clear_result_queue()
+
+    # Frame push before any screen is a safe no-op (must not raise).
+    mod.camera_preview_set_frame(b"\x00" * (240 * 240 * 2))
+
+    mod.camera_preview_screen({"instructions_text": "< back  |  Scan a QR code"})
+    assert mod._debug_last_path() == "compiled"
+
+    # A full 240x240 RGB565 frame (mid-gray 0x8410 little-endian) memcpy's into the
+    # sink and invalidates; pump so it renders through the flush path.
+    frame = bytes([0x10, 0x84]) * (240 * 240)
+    mod.camera_preview_set_frame(frame)
+    mod.lvgl_pump(10, 1)
+
+    # A memoryview / bytearray is also accepted (y* buffer protocol).
+    mod.camera_preview_set_frame(bytearray(frame))
+
+    # Overlay state updates: raise the bar, colour the dot, toggle scanning.
+    mod.camera_preview_set_scanning(True)
+    mod.camera_preview_set_progress(42, 1)   # 42%, added-part (green dot)
+    mod.camera_preview_set_progress(100, 2)  # complete, repeated (glide to 100)
+    mod.lvgl_pump(10, 1)
+
+    # Wrong-size frame is a ValueError (catches conversion bugs early).
+    with pytest.raises(ValueError):
+        mod.camera_preview_set_frame(b"\x00" * 16)
+
+    # Close is idempotent; after close, frame push is a no-op again.
+    mod.camera_preview_close()
+    mod.camera_preview_close()
+    mod.camera_preview_set_frame(frame)
+
+    mod.lvgl_shutdown()

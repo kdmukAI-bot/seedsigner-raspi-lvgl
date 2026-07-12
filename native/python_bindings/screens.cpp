@@ -42,6 +42,12 @@ PyObject *py_debug_last_path(PyObject *self, PyObject *args) {
     return PyUnicode_FromString(s_last_path);
 }
 
+// Mark a successful build for peer subsystems that don't live in this file (e.g.
+// camera_preview.cpp) so the shared _debug_last_path() test gate covers them too.
+void mark_last_path_compiled() {
+    s_last_path = "compiled";
+}
+
 // Strict cfg validation for button_list_screen only. The other screens are
 // lenient by design: they forward the cfg JSON to the shared C parser, which
 // applies defaults and raises on genuinely missing required fields.

@@ -125,11 +125,39 @@ merge-patch). Full per-screen cfg contracts: the contract comments in
 | `power_off_not_required_screen` | — | topnav_back |
 | `donate_screen` | — | topnav_back |
 | `io_test_screen` | — | hardware-key driven (see known gaps) |
+| `camera_preview_screen` | — (optional `instructions_text`) | live scan surface; back-cancel via joystick LEFT / topnav_back |
 | `screensaver_screen` | (no cfg arg) | manual-test helper; overlay manager owns the runtime screensaver |
 
 qr_display companions: `qr_display_set_frame(bytes|str)` pushes the next
 animated-QR frame; `qr_display_is_tip_active()` is True while the brightness
 panel is up (hold frames, restart the sequence when it clears).
+
+camera_preview companions (live QR-scan preview; the Pi owns the pixel plane —
+a full-screen RGB565 `lv_image` the host pushes frames into, with the portable
+overlay chrome on top):
+
+- `camera_preview_screen(cfg?)` — build the scan surface. Optional cfg
+  `{"instructions_text": str}` sets the hardware/joystick bottom line
+  (already localized + composed by the host, e.g. `"< back  |  Scan a QR code"`).
+- `camera_preview_set_frame(bytes)` — push one frame: **LVGL-native RGB565**,
+  exactly `width*height*2` bytes (a bytes-like read-only buffer; `memoryview` /
+  `bytearray` / contiguous `uint8` array all accepted). **Never pre-swap for the
+  panel** — the active flush driver (python flush → `ST7789.py`, native flush →
+  `display_st7789.cpp`) owns byte order/BGR, applied uniformly to camera pixels
+  and overlay widgets. This keeps the binding flush-mode-agnostic (cutover-safe).
+  Wrong length → `ValueError`; no active session → no-op.
+- `camera_preview_set_progress(percent, frame_status)` — advance the overlay a
+  few times/sec (never per frame): `percent` 0..100, `frame_status`
+  0 none / 1 added (green dot) / 2 repeated (gray dot) / 3 miss (hidden). Implies
+  scanning (raises the status bar). Mirrors Python `ScanScreen.FRAME__*`.
+- `camera_preview_set_scanning(active)` — toggle between the back-affordance
+  state (instruction text) and the scanning status-bar state.
+- `camera_preview_close()` — end the session (free the overlay handle + sink
+  buffer). Call **before** loading the next screen. Idempotent.
+
+Drive loop (host): `camera_preview_screen()` → per frame: capture → convert to
+RGB565 → `camera_preview_set_frame()` → `lvgl_pump()`; decode stays in Python and
+calls `camera_preview_set_progress()` on decode events → `camera_preview_close()`.
 
 ### Common cfg conventions
 
