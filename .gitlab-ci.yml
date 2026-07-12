@@ -28,6 +28,7 @@ build-armv6:
         - native/**/*
         - tests/**/*
         - sources/seedsigner-lvgl-screens
+        - sources/cUR
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_PIPELINE_SOURCE == "web"
   before_script:
@@ -69,11 +70,12 @@ build-armv6:
 
       [ "${BUILD_RC}" -eq 0 ] || exit "${BUILD_RC}"
 
-      # Verify artifact exists.
-      ls -la src/seedsigner_lvgl_screens*.so
+      # Verify artifacts exist.
+      ls -la src/seedsigner_lvgl_screens*.so src/uUR*.so
   artifacts:
     when: always
     paths:
       - src/seedsigner_lvgl_screens*.so
+      - src/uUR*.so
       - logs/
     expire_in: 30 days

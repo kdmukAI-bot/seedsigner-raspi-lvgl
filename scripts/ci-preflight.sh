@@ -19,4 +19,13 @@ if [[ ! -f "${ROOT}/sources/seedsigner-lvgl-screens/third_party/lvgl/lvgl.h" ]];
   exit 1
 fi
 
+# cUR (native BC-UR) is compiled into the separate `uUR` extension. Its CPython
+# binding lives at python/uUR.c on the fork's binding branch.
+if [[ ! -f "${ROOT}/sources/cUR/python/uUR.c" ]]; then
+  echo "ERROR: python/uUR.c missing under sources/cUR —" \
+       "cUR submodule not checked out (git submodule update --init --recursive)" \
+       "or pinned before the CPython-binding commit" >&2
+  exit 1
+fi
+
 echo "[preflight] OK"
