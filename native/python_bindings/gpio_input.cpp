@@ -88,12 +88,50 @@ void native_input_only_init() {
     native_input_init();
 }
 
+// --- Held-key gate across screen transitions --------------------------------
+// A key physically HELD while a screen transition takes over input must NOT
+// register on the newly-loaded screen — that press was aimed at the PREVIOUS
+// screen.
+//
+// We detect a transition as a change of the keypad indev's LVGL group — every
+// screen swap repoints the group (via the screens' attach helper, the Pi
+// runtime's save/restore, or the overlay manager) — and then swallow input
+// until ALL keys are released, so only a FRESH press that begins after the new
+// screen is up counts. Gating at the GPIO source covers repoint paths that do
+// not latch lv_indev_wait_release() (e.g. py_restore_screen) and holds however
+// the host drives the LVGL loop.
+//
+// Constraints this relies on / interplay:
+// - Pointer inequality detects transitions only because screens create the new
+//   group BEFORE deleting the old screen/group (load_screen_and_cleanup_previous
+//   in the screens repo). A delete-then-create swap order could reuse the heap
+//   address and silently defeat the check.
+// - The first gated read reports RELEASED, which clears any pending
+//   lv_indev_wait_release() latch (LVGL treats any non-PRESSED read as the
+//   release). Safe: this gate keeps reporting RELEASED until all keys are
+//   physically up, superseding the latch it defuses.
+// - This protects ONLY the LVGL indev path. Screens still rendered via PIL on
+//   the Pi read GPIO through the app's separate Python HardwareButtons reader
+//   and are NOT covered — the 2026-07 "Address Explorer QR self-dismisses on a
+//   held key" repro was that path (the Pi's QR display is still PIL; fix is
+//   routing it native, tracked in the app repo's
+//   docs/_integration/pi-pil-input-cutover-todo.md).
+static lv_group_t *s_gate_last_group   = NULL;
+static bool        s_gate_wait_release = false;
+
 void native_input_read_cb(lv_indev_t *indev, lv_indev_data_t *data) {
-    (void)indev;
     if (!s_input.ready) {
         data->state = LV_INDEV_STATE_REL;
         data->key = s_input.last_key;
         return;
+    }
+
+    // Arm the gate whenever the indev's group changes (a transition took over
+    // input): whatever is held right now is a carry-over to be ignored.
+    lv_group_t *cur_group = lv_indev_get_group(indev);
+    if (cur_group != s_gate_last_group) {
+        s_gate_last_group = cur_group;
+        s_gate_wait_release = true;
     }
 
     struct key_map_entry_t { int fd; uint32_t key; };
@@ -108,6 +146,9 @@ void native_input_read_cb(lv_indev_t *indev, lv_indev_data_t *data) {
         {s_input.key3_fd, (uint32_t)'3'},
     };
 
+    // Scan for the first pressed key (pin-order priority), as before.
+    bool     any_pressed = false;
+    uint32_t pressed_key = s_input.last_key;
     for (const auto &km : keys) {
         if (km.fd < 0) {
             continue;
@@ -119,11 +160,29 @@ void native_input_read_cb(lv_indev_t *indev, lv_indev_data_t *data) {
             continue;
         }
         if (v == 0) {  // active-low
-            s_input.last_key = km.key;
-            data->key = km.key;
-            data->state = LV_INDEV_STATE_PRESSED;
+            any_pressed = true;
+            pressed_key = km.key;
+            break;
+        }
+    }
+
+    // Held-key gate: after a transition, report "released" while anything is
+    // still held, then disarm on the first fully-released read so the next
+    // physical press is seen as a fresh edge.
+    if (s_gate_wait_release) {
+        if (any_pressed) {
+            data->key = s_input.last_key;
+            data->state = LV_INDEV_STATE_REL;
             return;
         }
+        s_gate_wait_release = false;
+    }
+
+    if (any_pressed) {
+        s_input.last_key = pressed_key;
+        data->key = pressed_key;
+        data->state = LV_INDEV_STATE_PRESSED;
+        return;
     }
 
     data->key = s_input.last_key;
