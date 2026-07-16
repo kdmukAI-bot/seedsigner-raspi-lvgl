@@ -103,6 +103,7 @@ merge-patch). Full per-screen cfg contracts: the contract comments in
 | `seed_review_passphrase_screen` | `passphrase` | button_selected / topnav_back |
 | `seed_words_screen` | `words` (non-empty) | button_selected / topnav_back |
 | `seed_transcribe_whole_qr_screen` | `qr_data` | button_selected / topnav_back |
+| `seed_transcribe_seedqr_format_screen` | `top_nav.title`, `button_list`, `standard_label`/`standard_text`/`compact_label`/`compact_text` | button_selected / topnav_back |
 | `seed_transcribe_zoomed_qr_screen` | `qr_data` | topnav_back |
 | `qr_display_screen` | `qr_data` | qr_brightness, then topnav_back |
 | `opening_splash_screen` | — (optional cfg) | button_selected(-1, "splash_complete") |
@@ -114,15 +115,18 @@ merge-patch). Full per-screen cfg contracts: the contract comments in
 | `psbt_op_return_screen` | — | button_selected / topnav_back |
 | `multisig_wallet_descriptor_screen` | — | button_selected / topnav_back |
 | `seed_address_verification_screen` | `address`, `type_network` | button_selected / topnav_back |
+| `seed_address_verification_success_screen` | `status_headline`, `address`, `address_type_text`, `index_text`, `button_list`, `top_nav.title` | button_selected (no back) |
 | `seed_sign_message_confirm_address_screen` | `derivation_path`, `address` | button_selected / topnav_back |
 | `seed_sign_message_confirm_message_screen` | — | button_selected / topnav_back |
 | `settings_qr_confirmation_screen` | — | button_selected / topnav_back |
 | `settings_locale_picker_screen` | rows cfg (`font_dir` optional) | button_selected(row index) |
+| `tools_address_explorer_address_type_screen` | `top_nav.title`, `button_list` (header optional: fingerprint shape or descriptor shape) | button_selected / topnav_back |
 | `tools_address_explorer_address_list_screen` | — | button_selected(row / paginate) / topnav_back |
 | `tools_calc_final_word_screen` | — | button_selected / topnav_back |
 | `tools_calc_final_word_done_screen` | `final_word`, `fingerprint` | button_selected / topnav_back |
 | `reset_screen` | — | none (host tears down) |
 | `power_off_not_required_screen` | — | topnav_back |
+| `power_options_screen` | `top_nav.title`, `button_list` (exactly 2 or 4 label+icon items) | button_selected(index) / topnav_back |
 | `donate_screen` | — | topnav_back |
 | `io_test_screen` | — | hardware-key driven (see known gaps) |
 | `camera_preview_screen` | — (optional `instructions_text`) | live scan surface; back-cancel via joystick LEFT / topnav_back |
