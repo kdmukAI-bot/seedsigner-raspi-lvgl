@@ -12,6 +12,7 @@
 //   result_queue.cpp    — host result queue + seedsigner_lvgl_on_* callbacks
 //   screens.cpp         — Python wrappers for the portable LVGL screens
 //   camera_preview.cpp  — Pi live camera-preview sink (lv_image) + portable overlay
+//   toast.cpp           — native toast overlay binding (show_toast / dismiss_toast)
 //   locale_packs.cpp    — language-pack discovery/loading (set_locale & co.)
 #ifndef SS_LVGL_MODULE_INTERNAL_H
 #define SS_LVGL_MODULE_INTERNAL_H
@@ -143,6 +144,10 @@ PyObject *py_camera_preview_close(PyObject *self, PyObject *args);
 // Tear the live session down before lv_deinit() so its statics can't dangle into
 // the next lvgl_init(); called from lvgl_runtime_shutdown().
 void camera_preview_on_lvgl_shutdown();
+
+// toast.cpp — native LVGL toast overlay (transient bottom banner over the live screen)
+PyObject *py_show_toast(PyObject *self, PyObject *args);
+PyObject *py_dismiss_toast(PyObject *self, PyObject *args);
 
 // screens.cpp — screen builders (all take cfg_dict except screensaver_screen)
 PyObject *py_button_list_screen(PyObject *self, PyObject *args);

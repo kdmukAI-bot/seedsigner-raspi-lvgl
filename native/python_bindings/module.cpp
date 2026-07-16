@@ -91,6 +91,14 @@ static PyMethodDef methods[] = {
     {"camera_preview_set_scanning", py_camera_preview_set_scanning, METH_VARARGS, "camera_preview_set_scanning(active): toggle between the back-affordance state (instruction text) and the scanning status-bar state."},
     {"camera_preview_close", py_camera_preview_close, METH_NOARGS, "End the camera-preview session: free the overlay handle + sink buffer. Call before loading the next screen. Idempotent."},
 
+    // --- Native toast overlay (toast.cpp) -------------------------------------
+    // A transient bottom banner built on the display's top layer: composites over the
+    // live screen, steals no input, and is dismissed natively (auto after duration_ms or
+    // by any hardware key/joystick press). No result is emitted; the host does not poll.
+    // Policy-free: the app resolves severity -> glyph+colors and passes them.
+    {"show_toast", py_show_toast, METH_VARARGS, "show_toast(cfg): raise/replace a toast over the live screen. cfg: 'label_text' (str, required), 'icon' (str glyph or None), 'outline_color' (int 0xRRGGBB, default 0xFFFFFF), 'font_color' (int 0xRRGGBB, default 0xFFFFFF), 'duration_ms' (int, default 3000; 0 = until dismissed/replaced). Thread-safe (deferred to the LVGL loop)."},
+    {"dismiss_toast", py_dismiss_toast, METH_NOARGS, "dismiss_toast(): dismiss the current toast immediately (no-op if none). LVGL-thread only — call from the pump thread; for a cross-thread dismiss let duration_ms expire."},
+
     // --- Result queue (result_queue.cpp) --------------------------------------
     {"poll_for_result", py_poll_for_result, METH_NOARGS, "Poll next result tuple or None."},
     {"clear_result_queue", py_clear_result_queue, METH_NOARGS, "Clear result queue."},

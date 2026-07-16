@@ -163,6 +163,32 @@ Drive loop (host): `camera_preview_screen()` → per frame: capture → convert 
 RGB565 → `camera_preview_set_frame()` → `lvgl_pump()`; decode stays in Python and
 calls `camera_preview_set_progress()` on decode events → `camera_preview_close()`.
 
+### Toast overlay
+
+A transient banner pinned to the bottom of the display, built on the LVGL **top
+layer** so it composites over whatever screen is live and survives screen swaps.
+It steals no input and emits **no result** — dismissal is owned natively (auto
+after `duration_ms`, or by any hardware key/joystick press, which is *not*
+consumed: the press both hides the toast and drives the underlying screen). One
+toast at a time (a newer one replaces it). Replaces the Pi's old PIL toast, which
+blacked out the LVGL UI. Method names match the MicroPython binding so the shared
+app needs no platform branch.
+
+- `show_toast(cfg)` — raise (or replace) a toast. cfg: `label_text` (str,
+  required; may contain `\n`), `icon` (str seedsigner-icon PUA glyph or `None`
+  for text-only), `outline_color` (int `0xRRGGBB`, default `0xFFFFFF` — banner
+  outline + icon), `font_color` (int `0xRRGGBB`, default `0xFFFFFF` — message
+  text), `duration_ms` (int, default 3000; `0` = stay until dismissed/replaced).
+  **Policy-free**: the app resolves severity → glyph + colors (Python's
+  Info/Success/Warning toast subclasses) and passes the finished values.
+  **Thread-safe** — routed through the overlay manager's deferred producer path,
+  so the app's SD-card detector thread and the main pump thread can both raise
+  toasts (the `.so` supplies the real `overlay_manager` mutex the shared code's
+  weak lock hooks default to no-ops for).
+- `dismiss_toast()` — dismiss the current toast immediately (no-op if none).
+  **LVGL-thread only** (call from the pump thread); for a cross-thread dismiss,
+  let `duration_ms` expire or replace the toast instead.
+
 ### Common cfg conventions
 
 - `top_nav` (dict): `title` (str), `show_back_button` (bool),
