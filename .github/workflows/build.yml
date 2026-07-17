@@ -46,7 +46,7 @@ env:
 jobs:
   build-armv6:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     steps:
       - name: Checkout seedsigner-raspi-lvgl
         uses: actions/checkout@v4
