@@ -494,3 +494,95 @@ def test_display_size_reports_active_profile():
     assert mod.display_size() == (320, 240)
 
     mod.lvgl_shutdown()
+
+
+def test_camera_preview_screen_build_and_frame_push():
+    # Live camera-preview scan surface: a full-screen RGB565 image sink + the
+    # portable overlay chrome. The host builds it, pushes RGB565 frames, advances
+    # the overlay, and closes the session. Exercises the whole binding without a
+    # camera (a synthetic mid-gray frame stands in for live pixels).
+    mod = _native_or_skip()
+    mod.lvgl_init(hor_res=240, ver_res=240)
+    mod.clear_result_queue()
+
+    # Frame push before any screen is a safe no-op (must not raise).
+    mod.camera_preview_set_frame(b"\x00" * (240 * 240 * 2))
+
+    mod.camera_preview_screen({"instructions_text": "< back  |  Scan a QR code"})
+    assert mod._debug_last_path() == "compiled"
+
+    # A full 240x240 RGB565 frame (mid-gray 0x8410 little-endian) memcpy's into the
+    # sink and invalidates; pump so it renders through the flush path.
+    frame = bytes([0x10, 0x84]) * (240 * 240)
+    mod.camera_preview_set_frame(frame)
+    mod.lvgl_pump(10, 1)
+
+    # A memoryview / bytearray is also accepted (y* buffer protocol).
+    mod.camera_preview_set_frame(bytearray(frame))
+
+    # Overlay state updates: raise the bar, colour the dot, toggle scanning.
+    mod.camera_preview_set_scanning(True)
+    mod.camera_preview_set_progress(42, 1)   # 42%, added-part (green dot)
+    mod.camera_preview_set_progress(100, 2)  # complete, repeated (glide to 100)
+    mod.lvgl_pump(10, 1)
+
+    # Wrong-size frame is a ValueError (catches conversion bugs early).
+    with pytest.raises(ValueError):
+        mod.camera_preview_set_frame(b"\x00" * 16)
+
+    # Close is idempotent; after close, frame push is a no-op again.
+    mod.camera_preview_close()
+    mod.camera_preview_close()
+    mod.camera_preview_set_frame(frame)
+
+    mod.lvgl_shutdown()
+
+
+def test_toast_overlay_show_and_dismiss():
+    # Native LVGL toast: a transient banner raised over the LIVE screen from the
+    # display's top layer. Policy-free — the host passes the resolved glyph + colors.
+    # It emits NO result (non-focus-stealing, natively dismissed), so the queue stays
+    # empty. Exercises the cfg marshalling + the deferred overlay_manager path headlessly.
+    mod = _native_or_skip()
+    mod.lvgl_init(hor_res=240, ver_res=240)
+    mod.clear_result_queue()
+
+    # A live screen under the toast (the toast composites over whatever is showing).
+    mod.button_list_screen({"top_nav": {"title": "Home"}, "button_list": ["A"]})
+
+    # Full cfg: message + severity glyph + resolved colors + auto-dismiss delay.
+    mod.show_toast({
+        "label_text": "microSD card\nremoved",
+        "icon": "",           # SeedSignerIconConstants.MICROSD (PUA)
+        "outline_color": 0x00FF00,
+        "font_color": 0x00FF00,
+        "duration_ms": 3000,
+    })
+    # overlay_manager_show_toast defers the build to the dispatcher lv_timer; pump so it
+    # realizes on the LVGL loop. The toast pushes no result onto the host queue.
+    mod.lvgl_pump(50, 5)
+    assert mod.poll_for_result() is None
+
+    # Minimal cfg: label_text only (text-only toast, default white/white, 3s).
+    mod.show_toast({"label_text": "Settings updated"})
+    mod.lvgl_pump(20, 5)
+    assert mod.poll_for_result() is None
+
+    # duration_ms == 0 stays until dismissed; dismiss it explicitly (pump thread).
+    mod.show_toast({"label_text": "Remove SD card", "duration_ms": 0})
+    mod.lvgl_pump(20, 5)
+    mod.dismiss_toast()      # idempotent — safe with a toast up or not
+    mod.dismiss_toast()
+    assert mod.poll_for_result() is None
+
+    # label_text is required.
+    with pytest.raises(RuntimeError):
+        mod.show_toast({"icon": ""})
+    # cfg must be a dict.
+    with pytest.raises(RuntimeError):
+        mod.show_toast("not a dict")
+    # A present-but-non-int color is a wiring error.
+    with pytest.raises((TypeError, RuntimeError)):
+        mod.show_toast({"label_text": "x", "outline_color": "#00ff00"})
+
+    mod.lvgl_shutdown()

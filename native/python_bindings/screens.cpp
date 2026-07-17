@@ -42,6 +42,12 @@ PyObject *py_debug_last_path(PyObject *self, PyObject *args) {
     return PyUnicode_FromString(s_last_path);
 }
 
+// Mark a successful build for peer subsystems that don't live in this file (e.g.
+// camera_preview.cpp) so the shared _debug_last_path() test gate covers them too.
+void mark_last_path_compiled() {
+    s_last_path = "compiled";
+}
+
 // Strict cfg validation for button_list_screen only. The other screens are
 // lenient by design: they forward the cfg JSON to the shared C parser, which
 // applies defaults and raises on genuinely missing required fields.
@@ -305,6 +311,15 @@ SCREEN_BINDING(seed_words_screen)
 // (default "Transcribe SeedQR"), "button_list". Needs LV_USE_QRCODE (enabled).
 SCREEN_BINDING(seed_transcribe_whole_qr_screen)
 
+// seed_transcribe_seedqr_format_screen: the "which SeedQR format?" chooser in the
+// hand-transcription flow — a bottom-pinned [Standard, Compact] button list under two
+// left-aligned caption/value rows explaining each format (the paired rows are why the
+// generic button_list_screen's single intro block won't do). cfg requires "top_nav.title",
+// a non-empty "button_list" (the per-seed-length "Standard: NxN" / "Compact: MxM"
+// choices), and the four localized row strings "standard_label"/"standard_text"/
+// "compact_label"/"compact_text". Result button_selected or topnav_back.
+SCREEN_BINDING(seed_transcribe_seedqr_format_screen)
+
 // seed_transcribe_zoomed_qr_screen: a full-bleed, pannable zoomed view of a SeedQR /
 // CompactSeedQR for hand transcription — one highlighted zone window over the dimmed QR
 // field, the encoded pattern mask-matched to the Pi's python-qrcode so a hand copy is
@@ -401,6 +416,15 @@ SCREEN_BINDING(multisig_wallet_descriptor_screen)
 // back hidden), "button_list" (default ["Skip 10","Cancel"]).
 SCREEN_BINDING(seed_address_verification_screen)
 
+// seed_address_verification_success_screen: the confirmation after the Address
+// Explorer's brute-force worker matches the unverified address to an index — the
+// SUCCESS variant of large_icon_status_screen (green check hero + green headline) but
+// with a bespoke three-line read-out (abbreviated FormattedAddress, address-type line,
+// "index N" line) the generic status screen can't express. No back button (forced). cfg
+// requires "status_headline", "address", "address_type_text", "index_text" strings and a
+// non-empty "button_list" (the "OK" ack), plus "top_nav.title". Result button_selected.
+SCREEN_BINDING(seed_address_verification_success_screen)
+
 // seed_sign_message_confirm_address_screen: sign-message step 2 — the deriving
 // path over the derived address, above a bottom button list. cfg requires
 // "derivation_path" and "address" strings; optional "derivation_path_label"
@@ -420,6 +444,15 @@ SCREEN_BINDING(seed_sign_message_confirm_message_screen)
 // and "status_message" strings; "top_nav.title" (default "Settings QR", back
 // hidden), "button_list" (default ["Home"]).
 SCREEN_BINDING(settings_qr_confirmation_screen)
+
+// tools_address_explorer_address_type_screen: the Address Explorer's "which
+// addresses?" chooser — a bottom-pinned [Receive, Change] button list under a context
+// header identifying the source. cfg requires "top_nav.title" and a non-empty
+// "button_list"; the header is one of two OPTIONAL shapes (a header-less call is
+// tolerated): single-sig seed -> "fingerprint" + "fingerprint_label" +
+// "derivation_text" + "derivation_label" (all required together); loaded descriptor ->
+// "wallet_descriptor_text" + "wallet_descriptor_label". Result button_selected or topnav_back.
+SCREEN_BINDING(tools_address_explorer_address_type_screen)
 
 // tools_address_explorer_address_list_screen: the Address Explorer list — a
 // scrolling column of derived addresses (each a button) plus a "Next N" paginate
@@ -456,6 +489,14 @@ SCREEN_BINDING(reset_screen)
 // wrapped message; back button shown. cfg all-optional: "text", "top_nav" (title
 // default "Just Unplug It"). Result topnav_back.
 SCREEN_BINDING(power_off_not_required_screen)
+
+// power_options_screen: the "Reset / Power" menu — Python's LargeButtonScreen with a
+// non-home button count (large icon tiles, not a text list), so it needs its own entry
+// point (the shared large_button_grid geometry main_menu also uses). cfg requires
+// "top_nav.title" and a "button_list" of EXACTLY 2 or 4 items (each a label + icon glyph,
+// the same flat shape button_list_screen takes; e.g. "Restart"/"Power off"). Pressing a
+// tile emits button_selected(index); back emits topnav_back.
+SCREEN_BINDING(power_options_screen)
 
 // donate_screen: body text over a URL (default "seedsigner.com") in a scroll
 // container; back shown. cfg all-optional: "text", "url", "top_nav" (title

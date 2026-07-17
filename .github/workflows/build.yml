@@ -46,7 +46,7 @@ env:
 jobs:
   build-armv6:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     steps:
       - name: Checkout seedsigner-raspi-lvgl
         uses: actions/checkout@v4
@@ -66,7 +66,11 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/.ci-ccache
-          key: ccache-build-${{ env.PY_SERIES }}-${{ hashFiles('setup.py', 'versions.lock.toml') }}
+          # Unique per-run key: actions/cache skips the post-job save on an
+          # exact primary-key hit, which would freeze the cache forever after
+          # its first save. A fresh key each run always saves the updated
+          # cache; restore-keys pulls the newest prior one.
+          key: ccache-build-${{ env.PY_SERIES }}-${{ github.run_id }}
           restore-keys: |
             ccache-build-${{ env.PY_SERIES }}-
 

@@ -73,10 +73,14 @@ PY
 
 # Compiler is now supplied by the locked py310-dev base image toolchain.
 # No runtime apt/compiler workaround in this build path.
-# Use ccache when available to speed up incremental rebuilds.
+# Use ccache when available to speed up incremental rebuilds. Assign CC/CXX
+# unconditionally: the base image bakes ENV CC=gcc / CXX=g++, so a
+# "${CC:-ccache gcc}" default silently loses to it and the build runs uncached.
 if command -v ccache >/dev/null 2>&1; then
-  export CC="${CC:-ccache gcc}"
-  export CXX="${CXX:-ccache g++}"
+  export CC="ccache gcc"
+  export CXX="ccache g++"
+  ccache --max-size=2G >/dev/null 2>&1 || true
+  ccache --zero-stats >/dev/null 2>&1 || true
   echo "[build] ccache enabled"
 else
   export CC="${CC:-gcc}"
@@ -128,6 +132,13 @@ BUILD_DIR="/tmp/build"
 rm -rf "${BUILD_DIR}"
 python "${ROOT_DIR}/setup.py" build_ext --inplace --force --parallel "$(nproc)" \
   --build-temp "${BUILD_DIR}/temp" --build-lib "${BUILD_DIR}/lib"
+
+# Cache effectiveness is load-bearing for CI wall-clock: surface hit/miss stats
+# in every log so a silently-dead cache (empty dir, defeated CC) is visible.
+if command -v ccache >/dev/null 2>&1; then
+  echo "[build] ccache stats after build:"
+  ccache --show-stats || true
+fi
 
 # Ensure tests import from local src tree. Runs the whole suite: pyproject's
 # python_files restricts collection to test_*.py (the pi_*_test.py scripts are

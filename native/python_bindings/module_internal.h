@@ -11,6 +11,8 @@
 //   gpio_lines.cpp      — generic gpiochip-ioctl / sysfs GPIO line helpers
 //   result_queue.cpp    — host result queue + seedsigner_lvgl_on_* callbacks
 //   screens.cpp         — Python wrappers for the portable LVGL screens
+//   camera_preview.cpp  — Pi live camera-preview sink (lv_image) + portable overlay
+//   toast.cpp           — native toast overlay binding (show_toast / dismiss_toast)
 //   locale_packs.cpp    — language-pack discovery/loading (set_locale & co.)
 #ifndef SS_LVGL_MODULE_INTERNAL_H
 #define SS_LVGL_MODULE_INTERNAL_H
@@ -129,6 +131,23 @@ PyObject *py_list_available_locales(PyObject *self, PyObject *args);
 PyObject *py_qr_display_set_frame(PyObject *self, PyObject *args);
 PyObject *py_qr_display_is_tip_active(PyObject *self, PyObject *args);
 PyObject *py_debug_last_path(PyObject *self, PyObject *args);
+// Mark a successful build in the shared _debug_last_path breadcrumb (for peer
+// subsystems whose builders live outside screens.cpp, e.g. camera_preview.cpp).
+void mark_last_path_compiled();
+
+// camera_preview.cpp — live camera-preview scan surface (pixel sink + overlay)
+PyObject *py_camera_preview_screen(PyObject *self, PyObject *args);
+PyObject *py_camera_preview_set_frame(PyObject *self, PyObject *args);
+PyObject *py_camera_preview_set_progress(PyObject *self, PyObject *args);
+PyObject *py_camera_preview_set_scanning(PyObject *self, PyObject *args);
+PyObject *py_camera_preview_close(PyObject *self, PyObject *args);
+// Tear the live session down before lv_deinit() so its statics can't dangle into
+// the next lvgl_init(); called from lvgl_runtime_shutdown().
+void camera_preview_on_lvgl_shutdown();
+
+// toast.cpp — native LVGL toast overlay (transient bottom banner over the live screen)
+PyObject *py_show_toast(PyObject *self, PyObject *args);
+PyObject *py_dismiss_toast(PyObject *self, PyObject *args);
 
 // screens.cpp — screen builders (all take cfg_dict except screensaver_screen)
 PyObject *py_button_list_screen(PyObject *self, PyObject *args);
@@ -143,6 +162,7 @@ PyObject *py_seed_review_passphrase_screen(PyObject *self, PyObject *args);
 PyObject *py_seed_words_screen(PyObject *self, PyObject *args);
 PyObject *py_seed_transcribe_zoomed_qr_screen(PyObject *self, PyObject *args);
 PyObject *py_seed_transcribe_whole_qr_screen(PyObject *self, PyObject *args);
+PyObject *py_seed_transcribe_seedqr_format_screen(PyObject *self, PyObject *args);
 PyObject *py_qr_display_screen(PyObject *self, PyObject *args);
 PyObject *py_opening_splash_screen(PyObject *self, PyObject *args);
 PyObject *py_loading_spinner_screen(PyObject *self, PyObject *args);
@@ -153,15 +173,18 @@ PyObject *py_psbt_math_screen(PyObject *self, PyObject *args);
 PyObject *py_psbt_op_return_screen(PyObject *self, PyObject *args);
 PyObject *py_multisig_wallet_descriptor_screen(PyObject *self, PyObject *args);
 PyObject *py_seed_address_verification_screen(PyObject *self, PyObject *args);
+PyObject *py_seed_address_verification_success_screen(PyObject *self, PyObject *args);
 PyObject *py_seed_sign_message_confirm_address_screen(PyObject *self, PyObject *args);
 PyObject *py_seed_sign_message_confirm_message_screen(PyObject *self, PyObject *args);
 PyObject *py_settings_qr_confirmation_screen(PyObject *self, PyObject *args);
 PyObject *py_settings_locale_picker_screen(PyObject *self, PyObject *args);
+PyObject *py_tools_address_explorer_address_type_screen(PyObject *self, PyObject *args);
 PyObject *py_tools_address_explorer_address_list_screen(PyObject *self, PyObject *args);
 PyObject *py_tools_calc_final_word_screen(PyObject *self, PyObject *args);
 PyObject *py_tools_calc_final_word_done_screen(PyObject *self, PyObject *args);
 PyObject *py_reset_screen(PyObject *self, PyObject *args);
 PyObject *py_power_off_not_required_screen(PyObject *self, PyObject *args);
+PyObject *py_power_options_screen(PyObject *self, PyObject *args);
 PyObject *py_donate_screen(PyObject *self, PyObject *args);
 PyObject *py_io_test_screen(PyObject *self, PyObject *args);
 PyObject *py_screensaver_screen(PyObject *self, PyObject *args);

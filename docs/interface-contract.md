@@ -103,6 +103,7 @@ merge-patch). Full per-screen cfg contracts: the contract comments in
 | `seed_review_passphrase_screen` | `passphrase` | button_selected / topnav_back |
 | `seed_words_screen` | `words` (non-empty) | button_selected / topnav_back |
 | `seed_transcribe_whole_qr_screen` | `qr_data` | button_selected / topnav_back |
+| `seed_transcribe_seedqr_format_screen` | `top_nav.title`, `button_list`, `standard_label`/`standard_text`/`compact_label`/`compact_text` | button_selected / topnav_back |
 | `seed_transcribe_zoomed_qr_screen` | `qr_data` | topnav_back |
 | `qr_display_screen` | `qr_data` | qr_brightness, then topnav_back |
 | `opening_splash_screen` | — (optional cfg) | button_selected(-1, "splash_complete") |
@@ -114,22 +115,79 @@ merge-patch). Full per-screen cfg contracts: the contract comments in
 | `psbt_op_return_screen` | — | button_selected / topnav_back |
 | `multisig_wallet_descriptor_screen` | — | button_selected / topnav_back |
 | `seed_address_verification_screen` | `address`, `type_network` | button_selected / topnav_back |
+| `seed_address_verification_success_screen` | `status_headline`, `address`, `address_type_text`, `index_text`, `button_list`, `top_nav.title` | button_selected (no back) |
 | `seed_sign_message_confirm_address_screen` | `derivation_path`, `address` | button_selected / topnav_back |
 | `seed_sign_message_confirm_message_screen` | — | button_selected / topnav_back |
 | `settings_qr_confirmation_screen` | — | button_selected / topnav_back |
 | `settings_locale_picker_screen` | rows cfg (`font_dir` optional) | button_selected(row index) |
+| `tools_address_explorer_address_type_screen` | `top_nav.title`, `button_list` (header optional: fingerprint shape or descriptor shape) | button_selected / topnav_back |
 | `tools_address_explorer_address_list_screen` | — | button_selected(row / paginate) / topnav_back |
 | `tools_calc_final_word_screen` | — | button_selected / topnav_back |
 | `tools_calc_final_word_done_screen` | `final_word`, `fingerprint` | button_selected / topnav_back |
 | `reset_screen` | — | none (host tears down) |
 | `power_off_not_required_screen` | — | topnav_back |
+| `power_options_screen` | `top_nav.title`, `button_list` (exactly 2 or 4 label+icon items) | button_selected(index) / topnav_back |
 | `donate_screen` | — | topnav_back |
 | `io_test_screen` | — | hardware-key driven (see known gaps) |
+| `camera_preview_screen` | — (optional `instructions_text`) | live scan surface; back-cancel via joystick LEFT / topnav_back |
 | `screensaver_screen` | (no cfg arg) | manual-test helper; overlay manager owns the runtime screensaver |
 
 qr_display companions: `qr_display_set_frame(bytes|str)` pushes the next
 animated-QR frame; `qr_display_is_tip_active()` is True while the brightness
 panel is up (hold frames, restart the sequence when it clears).
+
+camera_preview companions (live QR-scan preview; the Pi owns the pixel plane —
+a full-screen RGB565 `lv_image` the host pushes frames into, with the portable
+overlay chrome on top):
+
+- `camera_preview_screen(cfg?)` — build the scan surface. Optional cfg
+  `{"instructions_text": str}` sets the hardware/joystick bottom line
+  (already localized + composed by the host, e.g. `"< back  |  Scan a QR code"`).
+- `camera_preview_set_frame(bytes)` — push one frame: **LVGL-native RGB565**,
+  exactly `width*height*2` bytes (a bytes-like read-only buffer; `memoryview` /
+  `bytearray` / contiguous `uint8` array all accepted). **Never pre-swap for the
+  panel** — the active flush driver (python flush → `ST7789.py`, native flush →
+  `display_st7789.cpp`) owns byte order/BGR, applied uniformly to camera pixels
+  and overlay widgets. This keeps the binding flush-mode-agnostic (cutover-safe).
+  Wrong length → `ValueError`; no active session → no-op.
+- `camera_preview_set_progress(percent, frame_status)` — advance the overlay a
+  few times/sec (never per frame): `percent` 0..100, `frame_status`
+  0 none / 1 added (green dot) / 2 repeated (gray dot) / 3 miss (hidden). Implies
+  scanning (raises the status bar). Mirrors Python `ScanScreen.FRAME__*`.
+- `camera_preview_set_scanning(active)` — toggle between the back-affordance
+  state (instruction text) and the scanning status-bar state.
+- `camera_preview_close()` — end the session (free the overlay handle + sink
+  buffer). Call **before** loading the next screen. Idempotent.
+
+Drive loop (host): `camera_preview_screen()` → per frame: capture → convert to
+RGB565 → `camera_preview_set_frame()` → `lvgl_pump()`; decode stays in Python and
+calls `camera_preview_set_progress()` on decode events → `camera_preview_close()`.
+
+### Toast overlay
+
+A transient banner pinned to the bottom of the display, built on the LVGL **top
+layer** so it composites over whatever screen is live and survives screen swaps.
+It steals no input and emits **no result** — dismissal is owned natively (auto
+after `duration_ms`, or by any hardware key/joystick press, which is *not*
+consumed: the press both hides the toast and drives the underlying screen). One
+toast at a time (a newer one replaces it). Replaces the Pi's old PIL toast, which
+blacked out the LVGL UI. Method names match the MicroPython binding so the shared
+app needs no platform branch.
+
+- `show_toast(cfg)` — raise (or replace) a toast. cfg: `label_text` (str,
+  required; may contain `\n`), `icon` (str seedsigner-icon PUA glyph or `None`
+  for text-only), `outline_color` (int `0xRRGGBB`, default `0xFFFFFF` — banner
+  outline + icon), `font_color` (int `0xRRGGBB`, default `0xFFFFFF` — message
+  text), `duration_ms` (int, default 3000; `0` = stay until dismissed/replaced).
+  **Policy-free**: the app resolves severity → glyph + colors (Python's
+  Info/Success/Warning toast subclasses) and passes the finished values.
+  **Thread-safe** — routed through the overlay manager's deferred producer path,
+  so the app's SD-card detector thread and the main pump thread can both raise
+  toasts (the `.so` supplies the real `overlay_manager` mutex the shared code's
+  weak lock hooks default to no-ops for).
+- `dismiss_toast()` — dismiss the current toast immediately (no-op if none).
+  **LVGL-thread only** (call from the pump thread); for a cross-thread dismiss,
+  let `duration_ms` expire or replace the toast instead.
 
 ### Common cfg conventions
 
