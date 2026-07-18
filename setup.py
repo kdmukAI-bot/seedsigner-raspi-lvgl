@@ -212,12 +212,14 @@ seedsigner_sources = sorted(
 
 # Pi platform backend + Python bindings, one subsystem per file (module.cpp is
 # the method table; see native/python_bindings/module_internal.h for the map).
-# camera_scanner.cpp references the libcamera engine unconditionally, so it is only
-# compiled in the CAMERA_ENGINE build (added to camera_sources below); exclude it
-# from the default glob so the default extension has no undefined engine symbols.
+# camera_scanner.cpp / camera_entropy.cpp reference the libcamera engines
+# unconditionally, so they are only compiled in the CAMERA_ENGINE build (their engine
+# sources are in camera_sources); exclude them from the default glob so the default
+# extension has no undefined engine symbols.
+_engine_only_bindings = {"camera_scanner.cpp", "camera_entropy.cpp"}
 binding_sources = sorted(
     s for s in glob.glob(str(ROOT / "native" / "python_bindings" / "*.cpp"))
-    if camera_engine or os.path.basename(s) != "camera_scanner.cpp"
+    if camera_engine or os.path.basename(s) not in _engine_only_bindings
 )
 
 # --- Native cUR (BC-UR) -> the `uUR` extension ------------------------------

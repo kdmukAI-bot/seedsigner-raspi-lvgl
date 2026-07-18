@@ -15,6 +15,7 @@
 #include "module_internal.h"
 
 #include "camera_engine.h"
+#include "camera_entropy_engine.h"  // camera_entropy_engine_is_running() — §4.11 mutual exclusion
 #include "camera_preview_sink.h"  // camera_preview_session_active()
 #include "scan_coordinator.h"     // NEW ring + status (Phase 2 decode delivery)
 
@@ -56,6 +57,12 @@ static PyObject *mp_camera_scanner_start(PyObject *self, PyObject *args, PyObjec
 
     if (camera_engine_is_running()) {
         PyErr_SetString(PyExc_OSError, "camera scanner already running");
+        return NULL;
+    }
+    if (camera_entropy_engine_is_running()) {
+        // Both engines new their own CameraManager; libcamera fatally aborts on a second
+        // one (§4.11), so never let the scanner start while entropy holds the camera.
+        PyErr_SetString(PyExc_OSError, "camera busy (entropy running)");
         return NULL;
     }
 

@@ -30,6 +30,8 @@
 #include "overlay_manager.h"          // SS_OBJ_FLAG_NO_SCREENSAVER (per-screen saver opt-out)
 #include "camera_preview_overlay.h"   // camera_preview_overlay_* (portable, called as a black box)
 #include "camera_preview_sink.h"      // the Python-free sink bridge the native engine calls
+#include "camera_entropy_overlay.h"   // camera_entropy_overlay_* (portable image-entropy chrome)
+#include "image_entropy.h"            // image_entropy_process (portable contrast stretch + crop-to-fill)
 
 #include <cstring>                    // memcpy
 #include <stdexcept>
@@ -47,6 +49,9 @@ static std::vector<uint8_t>      s_cam_buf;     // dsc.data backing; sized once 
 static uint8_t                  *s_cam_data = nullptr;  // == s_cam_buf.data() while a session is live
 static size_t                    s_cam_size = 0;        // == w*h*2
 static camera_preview_overlay_t *s_overlay  = nullptr;
+// The image-entropy flow reuses the SAME sink (s_cam_*) — scan and entropy are mutually
+// exclusive, so only one overlay handle is ever live. Its own handle struct, freed on close.
+static camera_entropy_overlay_t *s_entropy_overlay = nullptr;
 
 // Drop the overlay handle + backing buffer. Safe after the screen was reaped
 // externally: overlay_destroy() only touches the anim subsystem + frees the handle
@@ -55,6 +60,10 @@ static void camera_preview_teardown() {
     if (s_overlay) {
         camera_preview_overlay_destroy(s_overlay);
         s_overlay = nullptr;
+    }
+    if (s_entropy_overlay) {
+        camera_entropy_overlay_destroy(s_entropy_overlay);
+        s_entropy_overlay = nullptr;
     }
     s_cam_screen = nullptr;
     s_cam_img    = nullptr;
@@ -168,6 +177,116 @@ void camera_preview_build_session(const std::string &instructions) {
         load_screen_and_cleanup_previous(scr);
         mark_last_path_compiled();
     }
+}
+
+// --- Image-entropy session --------------------------------------------------
+// Parallel to camera_preview_build_session but builds the camera_entropy_overlay
+// (PREVIEW/CAPTURING/CONFIRM) instead of the scan overlay. Reuses the SAME RGB565 sink
+// statics (s_cam_*) — scan and entropy never run at once. The screen + sink block is
+// intentionally kept a copy of the scan builder's so the device-validated scan path is
+// untouched. Strings are host-provided + already localized (from camera_entropy.set_labels).
+void camera_entropy_build_session(const std::string &preview_instructions,
+                                  const std::string &confirm_instructions,
+                                  const std::string &capturing_text,
+                                  const std::string &accept_label) {
+    require_lvgl_runtime();
+
+    // A rebuild without close() first must not leak a prior handle (either overlay).
+    if (s_overlay) {
+        camera_preview_overlay_destroy(s_overlay);
+        s_overlay = nullptr;
+    }
+    if (s_entropy_overlay) {
+        camera_entropy_overlay_destroy(s_entropy_overlay);
+        s_entropy_overlay = nullptr;
+    }
+
+    const int32_t w = lv_display_get_horizontal_resolution(NULL);
+    const int32_t h = lv_display_get_vertical_resolution(NULL);
+    const size_t  buf_size = static_cast<size_t>(w) * static_cast<size_t>(h) * 2;
+
+    lv_obj_t *scr = lv_obj_create(NULL);
+    lv_obj_set_style_bg_color(scr, lv_color_black(), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(scr, 0, LV_PART_MAIN);
+    lv_obj_set_style_border_width(scr, 0, LV_PART_MAIN);
+    lv_obj_set_scrollbar_mode(scr, LV_SCROLLBAR_MODE_OFF);
+    lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
+
+    s_cam_buf.assign(buf_size, 0);
+    s_cam_data = s_cam_buf.data();
+    s_cam_size = buf_size;
+
+    lv_memzero(&s_cam_dsc, sizeof(s_cam_dsc));
+    s_cam_dsc.header.magic  = LV_IMAGE_HEADER_MAGIC;
+    s_cam_dsc.header.cf     = LV_COLOR_FORMAT_RGB565;
+    s_cam_dsc.header.w      = w;
+    s_cam_dsc.header.h      = h;
+    s_cam_dsc.header.stride = static_cast<uint32_t>(w) * 2;
+    s_cam_dsc.data_size     = static_cast<uint32_t>(buf_size);
+    s_cam_dsc.data          = s_cam_data;
+
+    s_cam_img = lv_image_create(scr);
+    lv_obj_set_size(s_cam_img, w, h);
+    lv_obj_set_pos(s_cam_img, 0, 0);
+    lv_image_set_src(s_cam_img, &s_cam_dsc);
+    lv_obj_remove_flag(s_cam_img,
+                       (lv_obj_flag_t)(LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE));
+
+    // Entropy overlay ON TOP (created after the image so it draws above it). On the Pi the
+    // preview square fills the whole display (square == screen). PREVIEW phase to start.
+    camera_entropy_overlay_spec_t spec;
+    lv_memzero(&spec, sizeof(spec));
+    spec.square_x = 0;
+    spec.square_y = 0;
+    spec.square_w = w;
+    spec.square_h = h;
+    spec.preview_instructions = preview_instructions.empty() ? nullptr : preview_instructions.c_str();
+    spec.confirm_instructions = confirm_instructions.empty() ? nullptr : confirm_instructions.c_str();
+    spec.capturing_text       = capturing_text.empty() ? nullptr : capturing_text.c_str();
+    spec.capture_style        = CAMERA_ENTROPY_CAPTURE_RING;  // TOUCH-mode only; ignored in HARDWARE mode
+    spec.capture_icon         = nullptr;
+    spec.capture_label        = nullptr;
+    spec.accept_label         = accept_label.empty() ? nullptr : accept_label.c_str();
+    spec.phase                = CAMERA_ENTROPY_PHASE_PREVIEW;
+    s_entropy_overlay = camera_entropy_overlay_create(scr, &spec);
+    if (!s_entropy_overlay) {
+        lv_obj_delete(scr);
+        camera_preview_teardown();
+        throw std::runtime_error("camera_entropy overlay create failed");
+    }
+
+    s_cam_screen = scr;
+    lv_obj_add_flag(scr, SS_OBJ_FLAG_NO_SCREENSAVER);
+    load_screen_and_cleanup_previous(scr);
+    mark_last_path_compiled();
+}
+
+// Flip the entropy overlay's phase (camera_entropy.capture()→CAPTURING, get_result()'s
+// first latch→CONFIRM, resume()→PREVIEW). No-op when no entropy overlay is active.
+void camera_entropy_set_phase(int phase) {
+    if (s_entropy_overlay) {
+        camera_entropy_overlay_set_phase(s_entropy_overlay, (camera_entropy_phase_t)phase);
+    }
+}
+
+// Build the CONFIRM review image from the latched RAW frame: crop-to-fill + color-preserving
+// luminance contrast stretch (portable image_entropy_process) into a display-sized RGB565
+// buffer, then hand it to the overlay (which deep-copies it). DISPLAY-ONLY — never fed back
+// into the entropy chain. `raw_rgb565` is the sink-square latched frame (square_w x square_h).
+void camera_entropy_build_confirm_image(const uint8_t *raw_rgb565, int square_w, int square_h) {
+    if (!s_entropy_overlay || !raw_rgb565 || square_w <= 0 || square_h <= 0) {
+        return;
+    }
+    if (!lvgl_runtime_is_inited()) {
+        return;
+    }
+    const int32_t dw = lv_display_get_horizontal_resolution(NULL);
+    const int32_t dh = lv_display_get_vertical_resolution(NULL);
+    std::vector<uint16_t> disp(static_cast<size_t>(dw) * static_cast<size_t>(dh));
+    image_entropy_process(raw_rgb565, square_w, square_h, IMAGE_ENTROPY_PIXFMT_RGB565,
+                          disp.data(), dw, dh);
+    camera_entropy_overlay_set_confirm_image(s_entropy_overlay, disp.data(), dw, dh);
 }
 
 PyObject *py_camera_preview_screen(PyObject *self, PyObject *args) {

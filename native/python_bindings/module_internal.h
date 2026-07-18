@@ -163,6 +163,25 @@ void camera_preview_on_lvgl_shutdown();
 // set. Only present under the SS_CAMERA_ENGINE build.
 int camera_scanner_attach(PyObject *parent);
 
+// camera_preview.cpp — image-entropy session (reuses the scan sink; builds the portable
+// camera_entropy_overlay instead of the scan overlay). Shared by the camera_entropy
+// binding. build_session throws std::runtime_error on failure.
+void camera_entropy_build_session(const std::string &preview_instructions,
+                                  const std::string &confirm_instructions,
+                                  const std::string &capturing_text,
+                                  const std::string &accept_label);
+// Flip the entropy overlay phase (0 PREVIEW / 1 CAPTURING / 2 CONFIRM). No-op if none active.
+void camera_entropy_set_phase(int phase);
+// Build the CONFIRM review image (crop-to-fill + color-preserving contrast stretch via the
+// portable image_entropy_process) from the latched RAW sink-square frame and hand it to the
+// overlay. DISPLAY-ONLY — never fed into the entropy chain.
+void camera_entropy_build_confirm_image(const uint8_t *raw_rgb565, int square_w, int square_h);
+
+// camera_entropy.cpp — nested Python module implementing the ESP camera_entropy contract
+// (start/stop/set_labels/is_running/frames_chained/capture/get_result/resume). Attaches the
+// submodule at PyInit time; returns 0 on success, -1 with a Python error set. CAMERA_ENGINE only.
+int camera_entropy_attach(PyObject *parent);
+
 // toast.cpp — native LVGL toast overlay (transient bottom banner over the live screen)
 PyObject *py_show_toast(PyObject *self, PyObject *args);
 PyObject *py_dismiss_toast(PyObject *self, PyObject *args);

@@ -125,9 +125,14 @@ PyMODINIT_FUNC PyInit_seedsigner_lvgl_screens(void) {
         return NULL;
     }
 #ifdef SS_CAMERA_ENGINE
-    // Attach the nested `camera_scanner` submodule (native libcamera capture engine;
-    // ESP camera_scanner contract). Only present in the CAMERA_ENGINE build.
+    // Attach the nested `camera_scanner` (QR) + `camera_entropy` (image-entropy) submodules
+    // (native libcamera capture engines; ESP camera_scanner / camera_entropy contracts).
+    // Only present in the CAMERA_ENGINE build.
     if (camera_scanner_attach(m) < 0) {
+        Py_DECREF(m);
+        return NULL;
+    }
+    if (camera_entropy_attach(m) < 0) {
         Py_DECREF(m);
         return NULL;
     }
