@@ -142,9 +142,23 @@ PyObject *py_camera_preview_set_frame_yuv420(PyObject *self, PyObject *args);
 PyObject *py_camera_preview_set_progress(PyObject *self, PyObject *args);
 PyObject *py_camera_preview_set_scanning(PyObject *self, PyObject *args);
 PyObject *py_camera_preview_close(PyObject *self, PyObject *args);
+// Build the preview screen + overlay (shared by py_camera_preview_screen and the
+// native camera_scanner.start()). Throws std::runtime_error on failure.
+void camera_preview_build_session(const std::string &instructions);
+// End the live session: drop the overlay + sink and reset the idle clock. Shared by
+// py_camera_preview_close and camera_scanner.stop(). Idempotent.
+void camera_preview_close_session();
+// Toggle the overlay's scanning state (shared by the binding + camera_scanner.start()).
+void camera_preview_set_scanning_active(bool active);
 // Tear the live session down before lv_deinit() so its statics can't dangle into
 // the next lvgl_init(); called from lvgl_runtime_shutdown().
 void camera_preview_on_lvgl_shutdown();
+
+// camera_scanner.cpp — nested Python module implementing the ESP camera_scanner
+// poll contract (Phase 1: start/stop/is_running). Attaches the submodule object to
+// the parent extension at PyInit time; returns 0 on success, -1 with a Python error
+// set. Only present under the SS_CAMERA_ENGINE build.
+int camera_scanner_attach(PyObject *parent);
 
 // toast.cpp — native LVGL toast overlay (transient bottom banner over the live screen)
 PyObject *py_show_toast(PyObject *self, PyObject *args);

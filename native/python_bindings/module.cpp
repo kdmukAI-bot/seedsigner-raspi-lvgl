@@ -120,5 +120,17 @@ static struct PyModuleDef module_def = {
 };
 
 PyMODINIT_FUNC PyInit_seedsigner_lvgl_screens(void) {
-    return PyModule_Create(&module_def);
+    PyObject *m = PyModule_Create(&module_def);
+    if (!m) {
+        return NULL;
+    }
+#ifdef SS_CAMERA_ENGINE
+    // Attach the nested `camera_scanner` submodule (native libcamera capture engine;
+    // ESP camera_scanner contract). Only present in the CAMERA_ENGINE build.
+    if (camera_scanner_attach(m) < 0) {
+        Py_DECREF(m);
+        return NULL;
+    }
+#endif
+    return m;
 }

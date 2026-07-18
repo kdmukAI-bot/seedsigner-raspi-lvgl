@@ -29,6 +29,7 @@
 #include "screen_scaffold.h"          // load_screen_and_cleanup_previous
 #include "overlay_manager.h"          // SS_OBJ_FLAG_NO_SCREENSAVER (per-screen saver opt-out)
 #include "camera_preview_overlay.h"   // camera_preview_overlay_* (portable, called as a black box)
+#include "camera_preview_sink.h"      // the Python-free sink bridge the native engine calls
 
 #include <cstring>                    // memcpy
 #include <stdexcept>
@@ -70,35 +71,23 @@ void camera_preview_on_lvgl_shutdown() {
     camera_preview_teardown();
 }
 
+// End the live session (shared by py_camera_preview_close and camera_scanner.stop()):
+// drop the overlay handle + sink buffer and reset LVGL's idle clock so the successor
+// screen gets a full screensaver window. Idempotent.
+void camera_preview_close_session() {
+    camera_preview_teardown();
+    if (lvgl_runtime_is_inited()) {
+        lv_display_trigger_activity(NULL);
+    }
+}
+
 // --- Builder ----------------------------------------------------------------
-PyObject *py_camera_preview_screen(PyObject *self, PyObject *args) {
-    (void)self;
-
-    PyObject *cfg = nullptr;
-    if (!PyArg_ParseTuple(args, "|O", &cfg)) {
-        return nullptr;
-    }
-    if (cfg && cfg != Py_None && !PyDict_Check(cfg)) {
-        PyErr_SetString(PyExc_RuntimeError, "camera_preview_screen expects cfg_dict as dict");
-        return nullptr;
-    }
-
-    // Optional hardware/joystick bottom-line text (already localized + composed by the
-    // host, e.g. "< back  |  Scan a QR code"). Borrowed ref; copied into std::string so
-    // it outlives the overlay build (the overlay copies it into an lv_label).
-    std::string instructions;
-    if (cfg && cfg != Py_None) {
-        PyObject *it = PyDict_GetItemString(cfg, "instructions_text");  // borrowed
-        if (it && PyUnicode_Check(it)) {
-            const char *s = PyUnicode_AsUTF8(it);
-            if (!s) {
-                return nullptr;  // encoding error already set
-            }
-            instructions = s;
-        }
-    }
-
-    try {
+// Build the live preview screen + portable overlay (the body shared by the Python
+// binding and camera_scanner.start(), which owns the screen on the Pi like the ESP
+// camera_scanner does). Throws std::runtime_error on failure; the callers translate
+// that to a Python exception. `instructions` is the optional bottom-line text.
+void camera_preview_build_session(const std::string &instructions) {
+    {
         require_lvgl_runtime();
 
         // A rebuild without close() first must not leak the prior handle.
@@ -178,12 +167,68 @@ PyObject *py_camera_preview_screen(PyObject *self, PyObject *args) {
 
         load_screen_and_cleanup_previous(scr);
         mark_last_path_compiled();
+    }
+}
+
+PyObject *py_camera_preview_screen(PyObject *self, PyObject *args) {
+    (void)self;
+
+    PyObject *cfg = nullptr;
+    if (!PyArg_ParseTuple(args, "|O", &cfg)) {
+        return nullptr;
+    }
+    if (cfg && cfg != Py_None && !PyDict_Check(cfg)) {
+        PyErr_SetString(PyExc_RuntimeError, "camera_preview_screen expects cfg_dict as dict");
+        return nullptr;
+    }
+
+    // Optional hardware/joystick bottom-line text (already localized + composed by the
+    // host, e.g. "< back  |  Scan a QR code"). Borrowed ref; copied into std::string so
+    // it outlives the overlay build (the overlay copies it into an lv_label).
+    std::string instructions;
+    if (cfg && cfg != Py_None) {
+        PyObject *it = PyDict_GetItemString(cfg, "instructions_text");  // borrowed
+        if (it && PyUnicode_Check(it)) {
+            const char *s = PyUnicode_AsUTF8(it);
+            if (!s) {
+                return nullptr;  // encoding error already set
+            }
+            instructions = s;
+        }
+    }
+
+    try {
+        camera_preview_build_session(instructions);
     } catch (const std::exception &e) {
         PyErr_SetString(PyExc_RuntimeError, e.what());
         return nullptr;
     }
-
     Py_RETURN_NONE;
+}
+
+// --- Native-engine sink bridge (camera_preview_sink.h) ----------------------
+// Python-free entry points the native camera engine calls (camera_engine.cpp). All
+// three run on the pump/LVGL thread — the engine's consume hook fires inside
+// lvgl_runtime_pump — so blit_rgb565's lv_obj_invalidate stays on the LVGL locus.
+bool camera_preview_session_active() {
+    return s_cam_img != nullptr && s_cam_data != nullptr;
+}
+
+void camera_preview_get_sink_dims(int *w, int *h) {
+    if (w) {
+        *w = static_cast<int>(s_cam_dsc.header.w);
+    }
+    if (h) {
+        *h = static_cast<int>(s_cam_dsc.header.h);
+    }
+}
+
+void camera_preview_blit_rgb565(const uint8_t *rgb565, size_t nbytes) {
+    if (!s_cam_img || !s_cam_data || nbytes != s_cam_size) {
+        return;  // no session / size mismatch — silent no-op
+    }
+    memcpy(s_cam_data, rgb565, s_cam_size);
+    lv_obj_invalidate(s_cam_img);
 }
 
 // --- Frame push -------------------------------------------------------------
@@ -329,6 +374,14 @@ PyObject *py_camera_preview_set_progress(PyObject *self, PyObject *args) {
     Py_RETURN_NONE;
 }
 
+// C++ helper shared by the Python binding and camera_scanner.start(): toggle the
+// overlay between the back-affordance state and the scanning status-bar state.
+void camera_preview_set_scanning_active(bool active) {
+    if (s_overlay) {
+        camera_preview_overlay_set_scanning(s_overlay, active);
+    }
+}
+
 // camera_preview_set_scanning(active: bool) -> None
 // Toggle between the back-affordance state and the status-bar state.
 PyObject *py_camera_preview_set_scanning(PyObject *self, PyObject *args) {
@@ -338,9 +391,7 @@ PyObject *py_camera_preview_set_scanning(PyObject *self, PyObject *args) {
     if (!PyArg_ParseTuple(args, "p", &active)) {
         return nullptr;
     }
-    if (s_overlay) {
-        camera_preview_overlay_set_scanning(s_overlay, active != 0);
-    }
+    camera_preview_set_scanning_active(active != 0);
     Py_RETURN_NONE;
 }
 
@@ -352,12 +403,9 @@ PyObject *py_camera_preview_set_scanning(PyObject *self, PyObject *args) {
 PyObject *py_camera_preview_close(PyObject *self, PyObject *args) {
     (void)self;
     (void)args;
-    camera_preview_teardown();
     // Reset LVGL's idle clock so the successor screen gets a full screensaver window:
     // a no-input scan leaves inactive-time large, which would otherwise immediately
     // fire the saver over the next (flag-free) screen.
-    if (lvgl_runtime_is_inited()) {
-        lv_display_trigger_activity(NULL);
-    }
+    camera_preview_close_session();
     Py_RETURN_NONE;
 }

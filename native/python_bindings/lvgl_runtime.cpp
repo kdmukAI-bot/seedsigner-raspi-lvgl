@@ -8,6 +8,10 @@
 #include "input_profile.h"
 #include "overlay_manager.h"  // native screensaver idle-watch dispatcher
 
+#ifdef SS_CAMERA_ENGINE
+#include "camera_engine.h"    // camera_engine_pump_consume (Phase-1 native capture)
+#endif
+
 #include <chrono>
 #include <stdexcept>
 #include <thread>
@@ -164,6 +168,13 @@ int lvgl_runtime_pump(unsigned int duration_ms, unsigned int sleep_ms) {
     auto start = std::chrono::steady_clock::now();
     while (true) {
         lvgl_tick_update();
+#ifdef SS_CAMERA_ENGINE
+        // Publish the newest engine-converted camera frame into the preview sink
+        // (under the render lock) BEFORE rendering, so this pump paints it. No-op
+        // when no capture session is active. This is the ONLY place an engine frame
+        // reaches LVGL — invalidate stays on the LVGL locus (spec §4.9).
+        camera_engine_pump_consume();
+#endif
         lv_timer_handler();
 
         // Check for exceptions raised inside flush callbacks (e.g.

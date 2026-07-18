@@ -120,10 +120,26 @@ python_target_include = os.environ.get("PYTHON_TARGET_INCLUDE", "").strip()
 python_target_libdir = os.environ.get("PYTHON_TARGET_LIBDIR", "").strip()
 python_target_ldlibrary = os.environ.get("PYTHON_TARGET_LDLIBRARY", "").strip()
 
+# --- Native camera engine (Phase 1) -----------------------------------------
+# CAMERA_ENGINE=1 links the libcamera C++ capture engine (native/camera/) into the
+# seedsigner_lvgl_screens extension. This changes the ABI profile: the engine shares
+# libcamera's C++ objects across the library boundary, so the whole extension MUST
+# link SHARED libstdc++ (a static copy would split the ABI). libcamera + its headers
+# come from the device sysroot extracted by scripts/extract-camera-sysroot.sh. The
+# default build (no CAMERA_ENGINE) is byte-for-byte unchanged: static libstdc++, no
+# libcamera, no camera_scanner submodule.
+camera_engine = os.environ.get("CAMERA_ENGINE", "0") == "1"
+CAMERA_SYSROOT = Path(
+    os.environ.get("CAMERA_SYSROOT", str(ROOT / "sysroot" / "pi0-dev"))
+).resolve()
+
 include_dirs = [
     str(LVGL_ROOT),
     str(SEEDSIGNER_DIR),
     str(NLOHMANN_JSON_INCLUDE_DIR),
+    # camera_preview.cpp always includes camera_preview_sink.h (Python-free bridge);
+    # the header is harmless in the default build (its impls are just never called).
+    str(ROOT / "native" / "camera"),
 ]
 
 extra_link_args: list[str] = []
@@ -141,9 +157,28 @@ if armv6_force:
     ])
     # Avoid runtime dependency on host libstdc++/libgcc symbol versions.
     # This is critical for Pi Zero targets that often have older system toolchains.
+    # EXCEPTION: the CAMERA_ENGINE build must link libstdc++ SHARED (see above), so
+    # the static flip is skipped there — the device provides libstdc++.so.6.0.32.
+    if not camera_engine:
+        extra_link_args.extend([
+            "-static-libstdc++",
+            "-static-libgcc",
+        ])
+
+# libcamera link recipe (validated end-to-end by scripts/build-camera-probe.sh):
+# sysroot include + libs, --allow-shlib-undefined because the sysroot libs reference
+# GLIBC/GLIBCXX version nodes the build container's runtime lacks but the device has.
+camera_sources: list[str] = []
+if camera_engine:
+    cam_lib = str(CAMERA_SYSROOT / "usr" / "lib")
+    include_dirs.append(str(CAMERA_SYSROOT / "usr" / "include" / "libcamera"))
+    camera_sources = sorted(glob.glob(str(ROOT / "native" / "camera" / "*.cpp")))
     extra_link_args.extend([
-        "-static-libstdc++",
-        "-static-libgcc",
+        f"-L{cam_lib}",
+        "-lcamera",
+        "-lcamera-base",
+        "-Wl,--allow-shlib-undefined",
+        f"-Wl,-rpath-link,{cam_lib}",
     ])
 if cross_build and python_target_include:
     include_dirs.insert(0, python_target_include)
@@ -171,7 +206,13 @@ seedsigner_sources = sorted(
 
 # Pi platform backend + Python bindings, one subsystem per file (module.cpp is
 # the method table; see native/python_bindings/module_internal.h for the map).
-binding_sources = sorted(glob.glob(str(ROOT / "native" / "python_bindings" / "*.cpp")))
+# camera_scanner.cpp references the libcamera engine unconditionally, so it is only
+# compiled in the CAMERA_ENGINE build (added to camera_sources below); exclude it
+# from the default glob so the default extension has no undefined engine symbols.
+binding_sources = sorted(
+    s for s in glob.glob(str(ROOT / "native" / "python_bindings" / "*.cpp"))
+    if camera_engine or os.path.basename(s) != "camera_scanner.cpp"
+)
 
 # --- Native cUR (BC-UR) -> the `uUR` extension ------------------------------
 # Compiled from the sources/cUR submodule into a SEPARATE CPython module named
@@ -202,6 +243,8 @@ ext_modules = [
         "seedsigner_lvgl_screens",
         sources=[
             *binding_sources,
+            # Native libcamera capture engine (empty unless CAMERA_ENGINE=1).
+            *camera_sources,
             # Every portable seedsigner component + per-screen source (see the
             # seedsigner_sources glob above).
             *seedsigner_sources,
@@ -241,6 +284,8 @@ ext_modules = [
                 if os.environ.get("LVGL_PERF_MONITOR", "0") == "1"
                 else []
             ),
+            # Gate the pump-path consume hook + the camera_scanner submodule attach.
+            *([("SS_CAMERA_ENGINE", "1")] if camera_engine else []),
         ],
         extra_compile_args=extra_compile_args,
         extra_link_args=extra_link_args,
