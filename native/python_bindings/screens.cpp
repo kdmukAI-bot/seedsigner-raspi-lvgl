@@ -665,3 +665,29 @@ PyObject *py_qr_display_is_tip_active(PyObject *self, PyObject *args) {
     }
     Py_RETURN_FALSE;
 }
+
+// --- seed_address_verification_screen companion -------------------------------
+
+// Push the live "Checking address N" progress line into the running verify-address
+// screen. The host owns the brute-force worker and builds the localized string;
+// native just re-labels the live line (holds no strings). Mirrors qr_display_set_frame,
+// but the payload is a plain UTF-8 string, not a pixel buffer. Safe no-op on the
+// native side when no verify-address screen is active.
+PyObject *py_seed_address_verification_set_progress(PyObject *self, PyObject *args) {
+    (void)self;
+
+    const char *text = NULL;
+    if (!PyArg_ParseTuple(args, "s", &text)) {  // 's' = UTF-8; rejects bytes/None
+        return NULL;
+    }
+
+    try {
+        require_lvgl_runtime();
+        seed_address_verification_set_progress(text);
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+
+    Py_RETURN_NONE;
+}

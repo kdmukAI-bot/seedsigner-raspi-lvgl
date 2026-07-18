@@ -210,6 +210,7 @@ PyObject *py_psbt_math_screen(PyObject *self, PyObject *args);
 PyObject *py_psbt_op_return_screen(PyObject *self, PyObject *args);
 PyObject *py_multisig_wallet_descriptor_screen(PyObject *self, PyObject *args);
 PyObject *py_seed_address_verification_screen(PyObject *self, PyObject *args);
+PyObject *py_seed_address_verification_set_progress(PyObject *self, PyObject *args);
 PyObject *py_seed_address_verification_success_screen(PyObject *self, PyObject *args);
 PyObject *py_seed_sign_message_confirm_address_screen(PyObject *self, PyObject *args);
 PyObject *py_seed_sign_message_confirm_message_screen(PyObject *self, PyObject *args);
