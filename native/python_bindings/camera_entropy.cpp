@@ -19,6 +19,7 @@
 
 #include "camera_entropy_engine.h"   // native libcamera entropy engine (Python-free)
 #include "camera_engine.h"           // camera_engine_is_running() — §4.11 mutual-exclusion guard
+#include "camera_error.h"            // CAMERA_ERR_* codes + camera_error_str()
 #include "entropy_coordinator.h"     // chain + latch state (get_result / frames_chained)
 #include "camera_preview_sink.h"     // camera_preview_session_active / _get_sink_dims (shared sink)
 
@@ -43,11 +44,19 @@ static std::string s_confirm_instr;
 // s_await_confirm.
 static bool s_await_confirm = false;
 
+// Raise OSError(code, message) from a camera_error.h code. The host routes on the
+// exception's `.errno` (the stable numeric code, identical on Pi + ESP); the message
+// is for logs only. Always returns NULL so callers can `return raise_camera_oserror(code);`.
+static PyObject *raise_camera_oserror(int code) {
+    PyErr_SetObject(PyExc_OSError, Py_BuildValue("(is)", code, camera_error_str(code)));
+    return NULL;
+}
+
 // start(seed_hash=None, rotate=90, target_fps=15) -> None. Optional 32-byte caller
-// uniqueness seed (bytes, NOT an entropy source). Raises OSError on bring-up failure,
-// matching the ESP contract (the app treats OSError from start() as a recoverable camera
-// error). rotate/target_fps are Pi-only optional extras (the ESP has no analog); the
-// platform-agnostic start()/start(seed) call works on both.
+// uniqueness seed (bytes, NOT an entropy source). Raises OSError(code, msg) on bring-up
+// failure — `.errno` is a stable CAMERA_ERR_* code (camera_error.h), identical on Pi +
+// ESP; the app routes on it. rotate/target_fps are Pi-only optional extras (the ESP has
+// no analog); the platform-agnostic start()/start(seed) call works on both.
 static PyObject *mp_camera_entropy_start(PyObject *self, PyObject *args, PyObject *kwargs) {
     (void)self;
     static const char *kwlist[] = {"seed_hash", "rotate", "target_fps", NULL};
@@ -79,16 +88,14 @@ static PyObject *mp_camera_entropy_start(PyObject *self, PyObject *args, PyObjec
 
     if (camera_entropy_engine_is_running()) {
         if (have_view) PyBuffer_Release(&view);
-        PyErr_SetString(PyExc_OSError, "camera entropy already running");
-        return NULL;
+        return raise_camera_oserror(CAMERA_ERR_ALREADY_RUNNING);
     }
     if (camera_engine_is_running()) {
         // Refuse EARLY — before resetting the coordinator or touching the (scanner-owned)
         // session — so the error path never tears down the scanner's screen (§4.11: both
         // engines new their own CameraManager; a second one fatally aborts libcamera).
         if (have_view) PyBuffer_Release(&view);
-        PyErr_SetString(PyExc_OSError, "camera busy (scanner running)");
-        return NULL;
+        return raise_camera_oserror(CAMERA_ERR_BUSY);
     }
 
     // Seed the chain BEFORE the engine starts (the blit worker begins chaining immediately).
@@ -108,11 +115,10 @@ static PyObject *mp_camera_entropy_start(PyObject *self, PyObject *args, PyObjec
         return NULL;
     }
 
-    const char *err = camera_entropy_engine_start(rotate, target_fps);
-    if (err) {
+    int err = camera_entropy_engine_start(rotate, target_fps);
+    if (err != CAMERA_OK) {
         camera_preview_close_session();  // roll back the screen so a retry starts clean
-        PyErr_SetString(PyExc_OSError, err);
-        return NULL;
+        return raise_camera_oserror(err);
     }
     Py_RETURN_NONE;
 }
@@ -242,6 +248,8 @@ int camera_entropy_attach(PyObject *parent) {
     if (!sub) {
         return -1;
     }
+    // ERR_* camera error codes carried in the OSError raised by start() (.errno).
+    CAMERA_ERROR_ADD_PY_CONSTANTS(sub);
     // PyModule_AddObject steals the ref on success; guard so a failure doesn't leak.
     if (PyModule_AddObject(parent, "camera_entropy", sub) < 0) {
         Py_DECREF(sub);

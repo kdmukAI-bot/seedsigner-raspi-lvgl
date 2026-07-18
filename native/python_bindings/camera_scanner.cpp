@@ -16,6 +16,7 @@
 
 #include "camera_engine.h"
 #include "camera_entropy_engine.h"  // camera_entropy_engine_is_running() — §4.11 mutual exclusion
+#include "camera_error.h"         // CAMERA_ERR_* codes + camera_error_str()
 #include "camera_preview_sink.h"  // camera_preview_session_active()
 #include "scan_coordinator.h"     // NEW ring + status (Phase 2 decode delivery)
 
@@ -34,12 +35,22 @@ enum {
     CAM_SCAN_FRAME_MISS   = 3,
 };
 
+// Raise OSError(code, message) from a camera_error.h code. The host routes on the
+// exception's `.errno` (the stable numeric code, identical on Pi + ESP) and owns the
+// translated user-facing copy per code; the message is for logs only. Always returns
+// NULL so callers can `return raise_camera_oserror(code);`.
+static PyObject *raise_camera_oserror(int code) {
+    PyErr_SetObject(PyExc_OSError, Py_BuildValue("(is)", code, camera_error_str(code)));
+    return NULL;
+}
+
 // start(focus_assist=False, instructions_text=None, rotate=90, target_fps=15) -> None
 // Owns the preview screen on the Pi like the ESP camera_scanner owns its overlay:
 // builds the camera_preview screen (unless the caller already built one), flips it to
 // the scanning status-bar state, then brings up the native capture engine. Raises
-// OSError with a short reason on bring-up failure (matches the ESP contract; the app's
-// run_scan_screen already treats OSError from start() as a recoverable camera error).
+// OSError(code, msg) on bring-up failure — `.errno` is a stable CAMERA_ERR_* code
+// (camera_error.h), identical on Pi + ESP; the app routes on it (run_scan_screen
+// already treats OSError from start() as a recoverable camera error).
 // `focus_assist` is accepted for contract parity and currently ignored (reserved). The
 // no-arg form is the normal scan session, callable identically on both platforms.
 static PyObject *mp_camera_scanner_start(PyObject *self, PyObject *args, PyObject *kwargs) {
@@ -56,14 +67,12 @@ static PyObject *mp_camera_scanner_start(PyObject *self, PyObject *args, PyObjec
     (void)focus_assist;  // reserved
 
     if (camera_engine_is_running()) {
-        PyErr_SetString(PyExc_OSError, "camera scanner already running");
-        return NULL;
+        return raise_camera_oserror(CAMERA_ERR_ALREADY_RUNNING);
     }
     if (camera_entropy_engine_is_running()) {
         // Both engines new their own CameraManager; libcamera fatally aborts on a second
         // one (§4.11), so never let the scanner start while entropy holds the camera.
-        PyErr_SetString(PyExc_OSError, "camera busy (entropy running)");
-        return NULL;
+        return raise_camera_oserror(CAMERA_ERR_BUSY);
     }
 
     // Build the preview screen unless one is already active (the app may pre-build it
@@ -81,12 +90,11 @@ static PyObject *mp_camera_scanner_start(PyObject *self, PyObject *args, PyObjec
     // Flip the overlay to the scanning status-bar state (subsumes set_scanning(True)).
     camera_preview_set_scanning_active(true);
 
-    const char *err = camera_engine_start(rotate, target_fps);
-    if (err) {
+    int err = camera_engine_start(rotate, target_fps);
+    if (err != CAMERA_OK) {
         // Roll back the screen we may have just built so a retry starts clean.
         camera_preview_close_session();
-        PyErr_SetString(PyExc_OSError, err);
-        return NULL;
+        return raise_camera_oserror(err);
     }
     Py_RETURN_NONE;
 }
@@ -239,6 +247,8 @@ int camera_scanner_attach(PyObject *parent) {
     PyModule_AddIntConstant(sub, "FRAME_NEW",    CAM_SCAN_FRAME_NEW);
     PyModule_AddIntConstant(sub, "FRAME_REPEAT", CAM_SCAN_FRAME_REPEAT);
     PyModule_AddIntConstant(sub, "FRAME_MISS",   CAM_SCAN_FRAME_MISS);
+    // ERR_* camera error codes carried in the OSError raised by start() (.errno).
+    CAMERA_ERROR_ADD_PY_CONSTANTS(sub);
 
     // read_status()'s attrtuple-compatible result type (built once).
     if (!s_status_type) {

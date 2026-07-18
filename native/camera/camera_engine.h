@@ -23,10 +23,11 @@
 // reads its sink dimensions and publishes converted frames into it. rotate is one
 // of 0/90/180/270; target_fps caps the sensor frame duration.
 //
-// Returns nullptr on success, or a short static error string on bring-up failure
-// (no camera, config invalid, allocation/start failure) — the binding raises
-// OSError with it, matching the ESP camera_scanner.start() contract.
-const char *camera_engine_start(int rotate, int target_fps);
+// Returns CAMERA_OK (0) on success, or a camera_error.h code (CAMERA_ERR_*) on
+// bring-up failure (no camera, config invalid, allocation/start failure) — the
+// binding raises OSError(code, camera_error_str(code)), matching the ESP
+// camera_scanner.start() contract (same codes on both platforms).
+int camera_engine_start(int rotate, int target_fps);
 
 // Stop capture, join the blit worker, release the camera + CameraManager, unmap
 // buffers. Idempotent (safe to call when not running).

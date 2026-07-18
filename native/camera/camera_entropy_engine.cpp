@@ -5,6 +5,7 @@
 // the blit worker chains each preview frame into the entropy digest. Capture pins the
 // converged exposure/AWB and latches a stabilized frame (the "2B" path).
 #include "camera_entropy_engine.h"
+#include "camera_error.h"
 
 #include "camera_engine.h"          // camera_engine_is_running() — mutual-exclusion guard (§4.11)
 #include "camera_preview_sink.h"    // shared RGB565 sink (session/dims/blit)
@@ -270,7 +271,7 @@ void on_request_completed(Request *req) {
     g->camera->queueRequest(req);
 }
 
-const char *bringup_failed(const char *msg) {
+int bringup_failed(int code) {
     if (g) {
         if (g->camera) {
             g->camera->stop();
@@ -286,20 +287,20 @@ const char *bringup_failed(const char *msg) {
         delete g;
         g = nullptr;
     }
-    return msg;
+    return code;
 }
 
 }  // namespace
 
-const char *camera_entropy_engine_start(int rotate, int target_fps) {
+int camera_entropy_engine_start(int rotate, int target_fps) {
     if (g) {
-        return "entropy engine already running";
+        return CAMERA_ERR_ALREADY_RUNNING;
     }
     if (camera_engine_is_running()) {
-        return "camera busy (scanner running)";
+        return CAMERA_ERR_BUSY;
     }
     if (!camera_preview_session_active()) {
-        return "no camera_preview sink (build the entropy screen first)";
+        return CAMERA_ERR_NO_SINK;
     }
 
     g = new Engine();
@@ -309,40 +310,40 @@ const char *camera_entropy_engine_start(int rotate, int target_fps) {
 
     g->manager = std::make_unique<CameraManager>();
     if (g->manager->start()) {
-        return bringup_failed("CameraManager start failed");
+        return bringup_failed(CAMERA_ERR_MANAGER);
     }
     if (g->manager->cameras().empty()) {
-        return bringup_failed("no camera detected");
+        return bringup_failed(CAMERA_ERR_NO_CAMERA);
     }
     g->camera = g->manager->cameras()[0];
     if (g->camera->acquire()) {
-        return bringup_failed("camera acquire failed");
+        return bringup_failed(CAMERA_ERR_ACQUIRE);
     }
 
     g->config = g->camera->generateConfiguration({ StreamRole::Viewfinder });
     if (!g->config || g->config->empty()) {
-        return bringup_failed("generateConfiguration failed");
+        return bringup_failed(CAMERA_ERR_CONFIG_GENERATE);
     }
     g->config->at(0).pixelFormat = formats::YUV420;
     g->config->at(0).size = Size(g->disp_w, g->disp_h);
     g->config->at(0).bufferCount = kBufferCount;
     if (g->config->validate() == CameraConfiguration::Invalid) {
-        return bringup_failed("stream configuration invalid");
+        return bringup_failed(CAMERA_ERR_CONFIG_INVALID);
     }
     if (g->camera->configure(g->config.get())) {
-        return bringup_failed("camera configure failed");
+        return bringup_failed(CAMERA_ERR_CONFIG_APPLY);
     }
     g->stream = g->config->at(0).stream();
     g->disp_ystride = g->config->at(0).stride;
 
     g->allocator = std::make_unique<FrameBufferAllocator>(g->camera);
     if (g->allocator->allocate(g->stream) < 0) {
-        return bringup_failed("buffer allocation failed");
+        return bringup_failed(CAMERA_ERR_ALLOC);
     }
 
     const auto &dbufs = g->allocator->buffers(g->stream);
     if (dbufs.empty()) {
-        return bringup_failed("no preview buffers");
+        return bringup_failed(CAMERA_ERR_NO_BUFFERS);
     }
     {
         const auto &planes = dbufs[0]->planes();
@@ -363,7 +364,7 @@ const char *camera_entropy_engine_start(int rotate, int target_fps) {
         size_t len = buf->planes().back().offset + buf->planes().back().length;
         void *mem = mmap(nullptr, len, PROT_READ, MAP_SHARED, fd, 0);
         if (mem == MAP_FAILED) {
-            return bringup_failed("mmap failed");
+            return bringup_failed(CAMERA_ERR_MMAP);
         }
         g->maps[fd] = PlaneMap{ mem, len };
     }
@@ -371,7 +372,7 @@ const char *camera_entropy_engine_start(int rotate, int target_fps) {
     for (unsigned i = 0; i < dbufs.size(); ++i) {
         std::unique_ptr<Request> req = g->camera->createRequest(i);
         if (!req || req->addBuffer(g->stream, dbufs[i].get()) < 0) {
-            return bringup_failed("request assembly failed");
+            return bringup_failed(CAMERA_ERR_REQUEST);
         }
         g->requests.push_back(std::move(req));
     }
@@ -408,12 +409,12 @@ const char *camera_entropy_engine_start(int rotate, int target_fps) {
             g->blit.join();
         }
         g->camera->requestCompleted.disconnect(&on_request_completed);
-        return bringup_failed("camera start failed");
+        return bringup_failed(CAMERA_ERR_START);
     }
     for (auto &req : g->requests) {
         g->camera->queueRequest(req.get());
     }
-    return nullptr;
+    return CAMERA_OK;
 }
 
 void camera_entropy_engine_stop() {

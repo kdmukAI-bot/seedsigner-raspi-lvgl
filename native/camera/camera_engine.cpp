@@ -15,6 +15,7 @@
 // {ready_buf, dirty} (blit worker <-> pump). The manager thread touches only in_mtx,
 // so a busy pump can never stall 3A.
 #include "camera_engine.h"
+#include "camera_error.h"
 #include "camera_preview_sink.h"
 #include "scan_coordinator.h"
 
@@ -303,8 +304,8 @@ void on_request_completed(Request *req) {
     g->camera->queueRequest(req);
 }
 
-const char *bringup_failed(const char *msg) {
-    // Best-effort teardown of a partially-constructed engine, then surface msg. Any
+int bringup_failed(int code) {
+    // Best-effort teardown of a partially-constructed engine, then surface the code. Any
     // worker threads are already joined by the caller (the only bringup_failed after
     // thread spawn is the camera->start failure path), so ~Engine won't terminate().
     if (g) {
@@ -326,17 +327,17 @@ const char *bringup_failed(const char *msg) {
         delete g;
         g = nullptr;
     }
-    return msg;
+    return code;
 }
 
 }  // namespace
 
-const char *camera_engine_start(int rotate, int target_fps) {
+int camera_engine_start(int rotate, int target_fps) {
     if (g) {
-        return "camera engine already running";
+        return CAMERA_ERR_ALREADY_RUNNING;
     }
     if (!camera_preview_session_active()) {
-        return "no camera_preview sink (build the preview screen first)";
+        return CAMERA_ERR_NO_SINK;
     }
 
     g = new Engine();
@@ -347,20 +348,20 @@ const char *camera_engine_start(int rotate, int target_fps) {
 
     g->manager = std::make_unique<CameraManager>();
     if (g->manager->start()) {
-        return bringup_failed("CameraManager start failed");
+        return bringup_failed(CAMERA_ERR_MANAGER);
     }
     if (g->manager->cameras().empty()) {
-        return bringup_failed("no camera detected");
+        return bringup_failed(CAMERA_ERR_NO_CAMERA);
     }
     g->camera = g->manager->cameras()[0];
     if (g->camera->acquire()) {
-        return bringup_failed("camera acquire failed");
+        return bringup_failed(CAMERA_ERR_ACQUIRE);
     }
 
     g->config = g->camera->generateConfiguration(
         { StreamRole::VideoRecording, StreamRole::Viewfinder });
     if (!g->config || g->config->size() < 2) {
-        return bringup_failed("generateConfiguration failed");
+        return bringup_failed(CAMERA_ERR_CONFIG_GENERATE);
     }
     g->config->at(0).pixelFormat = formats::YUV420;
     g->config->at(0).size = Size(kDecodeSide, kDecodeSide);
@@ -369,10 +370,10 @@ const char *camera_engine_start(int rotate, int target_fps) {
     g->config->at(1).size = Size(g->disp_w, g->disp_h);
     g->config->at(1).bufferCount = kBufferCount;
     if (g->config->validate() == CameraConfiguration::Invalid) {
-        return bringup_failed("stream configuration invalid");
+        return bringup_failed(CAMERA_ERR_CONFIG_INVALID);
     }
     if (g->camera->configure(g->config.get())) {
-        return bringup_failed("camera configure failed");
+        return bringup_failed(CAMERA_ERR_CONFIG_APPLY);
     }
     g->decode_stream  = g->config->at(0).stream();
     g->display_stream = g->config->at(1).stream();
@@ -384,14 +385,14 @@ const char *camera_engine_start(int rotate, int target_fps) {
     g->allocator = std::make_unique<FrameBufferAllocator>(g->camera);
     if (g->allocator->allocate(g->decode_stream) < 0 ||
         g->allocator->allocate(g->display_stream) < 0) {
-        return bringup_failed("buffer allocation failed");
+        return bringup_failed(CAMERA_ERR_ALLOC);
     }
 
     // mmap the whole buffer of every stream (plane-0 fd is the map key). Derive the
     // display frame's U/V offsets + strides from the actual plane layout.
     const auto &dbufs = g->allocator->buffers(g->display_stream);
     if (dbufs.empty()) {
-        return bringup_failed("no display buffers");
+        return bringup_failed(CAMERA_ERR_NO_BUFFERS);
     }
     {
         const auto &planes = dbufs[0]->planes();
@@ -406,7 +407,7 @@ const char *camera_engine_start(int rotate, int target_fps) {
     {
         const auto &decbufs0 = g->allocator->buffers(g->decode_stream);
         if (decbufs0.empty()) {
-            return bringup_failed("no decode buffers");
+            return bringup_failed(CAMERA_ERR_NO_BUFFERS);
         }
         g->dec_ylen = decbufs0[0]->planes()[0].length;  // Y plane bytes (stride*h)
         g->dec_scratch.assign(g->dec_ylen, 0);
@@ -421,7 +422,7 @@ const char *camera_engine_start(int rotate, int target_fps) {
             size_t len = buf->planes().back().offset + buf->planes().back().length;
             void *mem = mmap(nullptr, len, PROT_READ, MAP_SHARED, fd, 0);
             if (mem == MAP_FAILED) {
-                return bringup_failed("mmap failed");
+                return bringup_failed(CAMERA_ERR_MMAP);
             }
             g->maps[fd] = PlaneMap{ mem, len };
         }
@@ -435,7 +436,7 @@ const char *camera_engine_start(int rotate, int target_fps) {
         if (!req ||
             req->addBuffer(g->decode_stream,  decbufs[i].get()) < 0 ||
             req->addBuffer(g->display_stream, dbufs[i].get()) < 0) {
-            return bringup_failed("request assembly failed");
+            return bringup_failed(CAMERA_ERR_REQUEST);
         }
         g->requests.push_back(std::move(req));
     }
@@ -463,7 +464,7 @@ const char *camera_engine_start(int rotate, int target_fps) {
     // suppress re-reads of a held/animated QR that we need decoded every frame).
     g->zbar = zbar_image_scanner_create();
     if (!g->zbar) {
-        return bringup_failed("zbar scanner create failed");
+        return bringup_failed(CAMERA_ERR_DECODER);
     }
     zbar_image_scanner_set_config(g->zbar, ZBAR_NONE, ZBAR_CFG_ENABLE, 0);
     zbar_image_scanner_set_config(g->zbar, ZBAR_QRCODE, ZBAR_CFG_ENABLE, 1);
@@ -485,12 +486,12 @@ const char *camera_engine_start(int rotate, int target_fps) {
             g->decode.join();
         }
         g->camera->requestCompleted.disconnect(&on_request_completed);
-        return bringup_failed("camera start failed");
+        return bringup_failed(CAMERA_ERR_START);
     }
     for (auto &req : g->requests) {
         g->camera->queueRequest(req.get());
     }
-    return nullptr;
+    return CAMERA_OK;
 }
 
 void camera_engine_stop() {
