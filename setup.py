@@ -171,12 +171,18 @@ if armv6_force:
 camera_sources: list[str] = []
 if camera_engine:
     cam_lib = str(CAMERA_SYSROOT / "usr" / "lib")
+    # libcamera headers live under usr/include/libcamera (code uses <libcamera/...>);
+    # zbar.h is directly under usr/include.
     include_dirs.append(str(CAMERA_SYSROOT / "usr" / "include" / "libcamera"))
+    include_dirs.append(str(CAMERA_SYSROOT / "usr" / "include"))
+    # Top-level native/camera/*.cpp only (engine + scan_coordinator); the probe/
+    # subdir is a standalone tool, not part of the extension.
     camera_sources = sorted(glob.glob(str(ROOT / "native" / "camera" / "*.cpp")))
     extra_link_args.extend([
         f"-L{cam_lib}",
         "-lcamera",
         "-lcamera-base",
+        "-lzbar",
         "-Wl,--allow-shlib-undefined",
         f"-Wl,-rpath-link,{cam_lib}",
     ])

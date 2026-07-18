@@ -20,15 +20,18 @@ DEST="${SYSROOT_DEST:-${ROOT_DIR}/sysroot/pi0-dev}"
 CONTAINER="${SS_OS_CONTAINER:-seedsigner-os-build-images-1}"
 STAGING="${SS_OS_STAGING:-}"
 
-# Headers + the libs the engine links (-lcamera -lcamera-base) + the DT_NEEDED
-# closure of libcamera.so (for full link-time resolution of the probe binary).
-# libstdc++ is captured so the ELF gate can read the device's real GLIBCXX
-# ceiling from the artifact instead of hardcoding it.
-INCLUDE_PATHS=(usr/include/libcamera)
+# Headers + the libs the engine links (-lcamera -lcamera-base -lzbar) + the
+# DT_NEEDED closure of libcamera.so (for full link-time resolution of the probe
+# binary). libstdc++ is captured so the ELF gate can read the device's real
+# GLIBCXX ceiling from the artifact instead of hardcoding it.
+INCLUDE_PATHS=(usr/include/libcamera usr/include/zbar usr/include/zbar.h)
 LIB_LINKS=(
   libcamera.so libcamera-base.so
   libcrypto.so.3 libyaml-0.so.2
   libstdc++.so.6 libgcc_s.so.1
+  # libzbar.so points straight at the real file, so pull the SONAME symlink
+  # (libzbar.so.0, the DT_NEEDED the link records) explicitly for a complete sysroot.
+  libzbar.so libzbar.so.0
 )
 
 if [[ -n "${STAGING}" ]]; then

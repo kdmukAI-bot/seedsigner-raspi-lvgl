@@ -16,9 +16,11 @@
 
 #include "camera_engine.h"
 #include "camera_preview_sink.h"  // camera_preview_session_active()
+#include "scan_coordinator.h"     // NEW ring + status (Phase 2 decode delivery)
 
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 // Frame-status vocabulary (mirrors the ESP scan_coordinator / Python DecodeQRStatus
 // dot codes; identical ints to camera_preview_set_progress's frame_status). NOTE the
@@ -111,6 +113,85 @@ static PyObject *mp_camera_scanner_debug_stats(PyObject *self, PyObject *args) {
                          (unsigned long long)conv, (unsigned long long)pub);
 }
 
+// _debug_decode_stats() -> (attempts, hits): zbar decode passes run + passes that
+// found a QR. attempts / elapsed is the decoder's frames-per-second.
+static PyObject *mp_camera_scanner_debug_decode_stats(PyObject *self, PyObject *args) {
+    (void)self;
+    (void)args;
+    uint64_t attempts = 0, hits = 0;
+    camera_engine_decode_stats(&attempts, &hits);
+    return Py_BuildValue("(KK)", (unsigned long long)attempts, (unsigned long long)hits);
+}
+
+// --- Phase 2 decode delivery (ESP camera_scanner poll contract) -------------
+
+// poll_new() -> bytes | None. Drain one NEW decoded payload from the coordinator's
+// ring (copied into a fresh bytes). None when empty. The consumer drains to empty
+// each loop (§7a of the contract).
+static PyObject *mp_camera_scanner_poll_new(PyObject *self, PyObject *args) {
+    (void)self;
+    (void)args;
+    std::vector<uint8_t> payload;
+    if (!scan_coord_poll_new(payload)) {
+        Py_RETURN_NONE;
+    }
+    return PyBytes_FromStringAndSize(reinterpret_cast<const char *>(payload.data()),
+                                     static_cast<Py_ssize_t>(payload.size()));
+}
+
+// read_status() -> structseq(latest, consecutive_misses, dropped_new, has_corners).
+// A PyStructSequence (like os.stat_result) — attribute-compatible with the ESP
+// MicroPython attrtuple, so the consumer's st.latest / st.consecutive_misses work
+// identically on both platforms.
+static PyTypeObject *s_status_type = nullptr;
+static PyStructSequence_Field s_status_fields[] = {
+    {const_cast<char *>("latest"),             const_cast<char *>("last frame FRAME_* classification")},
+    {const_cast<char *>("consecutive_misses"), const_cast<char *>("sustained-MISS run length (Pi: always 0)")},
+    {const_cast<char *>("dropped_new"),        const_cast<char *>("NEW payloads dropped on ring overflow")},
+    {const_cast<char *>("has_corners"),        const_cast<char *>("reserved (Pi: always False)")},
+    {nullptr, nullptr},
+};
+static PyStructSequence_Desc s_status_desc = {
+    const_cast<char *>("camera_scanner.status"), nullptr, s_status_fields, 4,
+};
+
+static PyObject *mp_camera_scanner_read_status(PyObject *self, PyObject *args) {
+    (void)self;
+    (void)args;
+    ScanStatus st;
+    scan_coord_read_status(&st);
+    PyObject *o = PyStructSequence_New(s_status_type);
+    if (!o) {
+        return NULL;
+    }
+    PyStructSequence_SetItem(o, 0, PyLong_FromLong(st.latest));
+    PyStructSequence_SetItem(o, 1, PyLong_FromUnsignedLong(st.consecutive_misses));
+    PyStructSequence_SetItem(o, 2, PyLong_FromUnsignedLong(st.dropped_new));
+    PyStructSequence_SetItem(o, 3, PyBool_FromLong(st.has_corners ? 1 : 0));
+    return o;
+}
+
+// report(status, percent) -> None. status is one of FRAME_*; percent 0..100. Drives
+// the overlay dot + bar. NOTE the (status, percent) order (ESP contract) is the
+// reverse of camera_preview_set_progress(percent, status).
+static PyObject *mp_camera_scanner_report(PyObject *self, PyObject *args) {
+    (void)self;
+    int status = 0, percent = 0;
+    if (!PyArg_ParseTuple(args, "ii", &status, &percent)) {
+        return NULL;
+    }
+    camera_preview_report(status, percent);
+    Py_RETURN_NONE;
+}
+
+// report_complete() -> None. Terminal: drive the bar to full + green.
+static PyObject *mp_camera_scanner_report_complete(PyObject *self, PyObject *args) {
+    (void)self;
+    (void)args;
+    camera_preview_report(CAM_SCAN_FRAME_NEW, 100);
+    Py_RETURN_NONE;
+}
+
 static PyMethodDef camera_scanner_methods[] = {
     {"start", (PyCFunction)mp_camera_scanner_start, METH_VARARGS | METH_KEYWORDS,
      "start(focus_assist=False, instructions_text=None, rotate=90, target_fps=15): bring up the "
@@ -119,8 +200,18 @@ static PyMethodDef camera_scanner_methods[] = {
      "stop(): stop capture, release the camera, and end the preview session. Idempotent."},
     {"is_running", mp_camera_scanner_is_running, METH_NOARGS,
      "is_running() -> bool: True while the capture engine is live."},
+    {"poll_new", mp_camera_scanner_poll_new, METH_NOARGS,
+     "poll_new() -> bytes | None: drain one NEW decoded payload from the ring."},
+    {"read_status", mp_camera_scanner_read_status, METH_NOARGS,
+     "read_status() -> structseq(latest, consecutive_misses, dropped_new, has_corners)."},
+    {"report", mp_camera_scanner_report, METH_VARARGS,
+     "report(status, percent): drive the overlay dot + progress bar. status is FRAME_*."},
+    {"report_complete", mp_camera_scanner_report_complete, METH_NOARGS,
+     "report_complete(): terminal — drive the bar to full + green."},
     {"_debug_stats", mp_camera_scanner_debug_stats, METH_NOARGS,
      "_debug_stats() -> (frames_in, frames_conv, frames_pub): lifetime frame counters."},
+    {"_debug_decode_stats", mp_camera_scanner_debug_decode_stats, METH_NOARGS,
+     "_debug_decode_stats() -> (attempts, hits): zbar decode passes + QR-found passes."},
     {NULL, NULL, 0, NULL},
 };
 
@@ -141,6 +232,15 @@ int camera_scanner_attach(PyObject *parent) {
     PyModule_AddIntConstant(sub, "FRAME_NEW",    CAM_SCAN_FRAME_NEW);
     PyModule_AddIntConstant(sub, "FRAME_REPEAT", CAM_SCAN_FRAME_REPEAT);
     PyModule_AddIntConstant(sub, "FRAME_MISS",   CAM_SCAN_FRAME_MISS);
+
+    // read_status()'s attrtuple-compatible result type (built once).
+    if (!s_status_type) {
+        s_status_type = PyStructSequence_NewType(&s_status_desc);
+        if (!s_status_type) {
+            Py_DECREF(sub);
+            return -1;
+        }
+    }
 
     // PyModule_AddObject steals the ref on success; guard so a failure doesn't leak.
     if (PyModule_AddObject(parent, "camera_scanner", sub) < 0) {

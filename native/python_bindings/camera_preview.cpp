@@ -382,6 +382,17 @@ void camera_preview_set_scanning_active(bool active) {
     }
 }
 
+// Drive the overlay status bar + dot from camera_scanner.report()/report_complete().
+// Arg order (frame_status, percent) matches the ESP camera_scanner.report() contract
+// — the REVERSE of set_progress(percent, frame_status), which retires with the rest of
+// the Phase-0 surface. No-op when no overlay is active.
+void camera_preview_report(int frame_status, int percent) {
+    if (s_overlay) {
+        camera_preview_overlay_set_progress(
+            s_overlay, percent, (camera_overlay_frame_status_t)frame_status);
+    }
+}
+
 // camera_preview_set_scanning(active: bool) -> None
 // Toggle between the back-affordance state and the status-bar state.
 PyObject *py_camera_preview_set_scanning(PyObject *self, PyObject *args) {

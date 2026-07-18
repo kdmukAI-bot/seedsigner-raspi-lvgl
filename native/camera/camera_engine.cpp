@@ -16,6 +16,9 @@
 // so a busy pump can never stall 3A.
 #include "camera_engine.h"
 #include "camera_preview_sink.h"
+#include "scan_coordinator.h"
+
+#include <zbar.h>
 
 #include <libcamera/camera.h>
 #include <libcamera/camera_manager.h>
@@ -40,6 +43,9 @@
 #include <vector>
 
 using namespace libcamera;
+// zbar.h wraps its entire C API in `namespace zbar { extern "C" {...} }` when compiled
+// as C++, so the zbar_* names are zbar::-qualified without this.
+using namespace zbar;
 
 namespace {
 
@@ -73,18 +79,31 @@ struct Engine {
     size_t disp_total = 0;           // bytes copied per frame (whole YUV420 buffer)
     int rotate = 90;
 
-    // manager thread <-> blit worker
+    // decode frame geometry (Y plane only)
+    int    dec_w = 0, dec_h = 0;     // 480x480
+    int    dec_ystride = 0;          // Y row stride (>= dec_w, 64B-aligned)
+    size_t dec_ylen = 0;            // bytes copied per frame (Y plane length)
+
+    // manager thread <-> blit worker (display)
     std::mutex               in_mtx;
     std::condition_variable  in_cv;
     std::vector<uint8_t>     scratch;          // latest display YUV420, cached
     uint64_t                 in_gen = 0;       // bumped on each new scratch frame
 
-    // blit worker <-> pump
+    // manager thread <-> decode worker (decode Y)
+    std::mutex               dec_mtx;
+    std::condition_variable  dec_cv;
+    std::vector<uint8_t>     dec_scratch;      // latest raw decode Y (with stride), cached
+    uint64_t                 dec_gen = 0;
+
+    // blit worker <-> pump (display)
     std::mutex               out_mtx;
     std::vector<uint8_t>     ready_buf;        // latest converted RGB565
     bool                     dirty = false;
 
     std::thread              blit;
+    std::thread              decode;
+    zbar_image_scanner_t    *zbar = nullptr;   // owned + used only by the decode worker
     std::atomic<bool>        running{false};
 };
 
@@ -95,6 +114,8 @@ Engine *g = nullptr;
 std::atomic<uint64_t> s_n_in{0};    // frames captured by the manager thread
 std::atomic<uint64_t> s_n_conv{0};  // frames converted by the blit worker
 std::atomic<uint64_t> s_n_pub{0};   // frames published to the sink by the pump
+std::atomic<uint64_t> s_n_dec{0};   // zbar decode passes run by the decode worker
+std::atomic<uint64_t> s_n_hit{0};   // decode passes that found >=1 QR symbol
 
 // BT.601 studio-range YUV420 -> RGB565 with 0/90/180/270 rotation. Mirrors
 // camera_preview.cpp's set_frame_yuv420 inner loop (Phase-1 keeps the proven
@@ -172,6 +193,59 @@ void blit_worker() {
     }
 }
 
+// --- decode worker ----------------------------------------------------------
+// Copy-on-dispatch (spec §6 Phase 2): snapshot the newest raw decode-Y from
+// dec_scratch, stride-strip it into a contiguous grayscale buffer, and run zbar. The
+// worker never holds a libcamera Request, so buffer_count stays sized for display
+// cadence. Decoded payloads + a per-frame NONE/NEW/REPEAT classification go to the
+// scan_coordinator; the app's scan_consumer.run_scan drains them via the binding.
+void decode_worker() {
+    std::vector<uint8_t> local(g->dec_ylen);                      // raw Y (strided)
+    std::vector<uint8_t> gray(static_cast<size_t>(g->dec_w) * g->dec_h);  // contiguous
+    uint64_t last_gen = 0;
+
+    while (g->running.load(std::memory_order_acquire)) {
+        {
+            std::unique_lock<std::mutex> lk(g->dec_mtx);
+            g->dec_cv.wait(lk, [&] {
+                return !g->running.load(std::memory_order_acquire) || g->dec_gen != last_gen;
+            });
+            if (!g->running.load(std::memory_order_acquire)) {
+                break;
+            }
+            last_gen = g->dec_gen;
+            std::memcpy(local.data(), g->dec_scratch.data(), g->dec_ylen);
+        }
+
+        // Stride-strip (e.g. 512 -> 480). Row-major contiguous runs — cache-friendly,
+        // unlike the column-major rotate read (§4.9), so this is cheap.
+        for (int y = 0; y < g->dec_h; ++y) {
+            std::memcpy(gray.data() + static_cast<size_t>(y) * g->dec_w,
+                        local.data() + static_cast<size_t>(y) * g->dec_ystride, g->dec_w);
+        }
+
+        zbar_image_t *img = zbar_image_create();
+        zbar_image_set_format(img, zbar_fourcc('Y', '8', '0', '0'));
+        zbar_image_set_size(img, g->dec_w, g->dec_h);
+        zbar_image_set_data(img, gray.data(),
+                            static_cast<unsigned long>(g->dec_w) * g->dec_h, nullptr);
+        int n = zbar_scan_image(g->zbar, img);
+        s_n_dec.fetch_add(1, std::memory_order_relaxed);
+        if (n > 0) {
+            s_n_hit.fetch_add(1, std::memory_order_relaxed);
+            for (const zbar_symbol_t *sym = zbar_image_first_symbol(img);
+                 sym; sym = zbar_symbol_next(sym)) {
+                const char *data = zbar_symbol_get_data(sym);
+                unsigned len = zbar_symbol_get_data_length(sym);
+                scan_coord_on_frame(reinterpret_cast<const uint8_t *>(data), len);
+            }
+        } else {
+            scan_coord_on_frame(nullptr, 0);
+        }
+        zbar_image_destroy(img);
+    }
+}
+
 // --- completion handler (libcamera manager thread) --------------------------
 void on_request_completed(Request *req) {
     // Skip when stopping: running is cleared before camera->stop(), so a request
@@ -199,6 +273,23 @@ void on_request_completed(Request *req) {
             g->in_cv.notify_one();
         }
     }
+    // Decode Y plane: linear memcpy (with stride) into cached scratch, bump the decode
+    // generation. Stride-stripping is left to the decode worker (a strided read from
+    // the uncached dmabuf here would stall 3A, §4.9).
+    auto dit = bufs.find(g->decode_stream);
+    if (dit != bufs.end()) {
+        const FrameBuffer::Plane &p0 = dit->second->planes()[0];
+        auto mit = g->maps.find(p0.fd.get());
+        if (mit != g->maps.end()) {
+            const uint8_t *src = static_cast<const uint8_t *>(mit->second.mem) + p0.offset;
+            {
+                std::lock_guard<std::mutex> lk(g->dec_mtx);
+                std::memcpy(g->dec_scratch.data(), src, g->dec_ylen);
+                g->dec_gen++;
+            }
+            g->dec_cv.notify_one();
+        }
+    }
     // Re-check running immediately before requeuing: stop() clears it before
     // camera->stop(), so this narrows the "requeue into a Stopping camera" race to a
     // few instructions. A mutex shared with stop() would deadlock (camera->stop()
@@ -213,11 +304,17 @@ void on_request_completed(Request *req) {
 }
 
 const char *bringup_failed(const char *msg) {
-    // Best-effort teardown of a partially-constructed engine, then surface msg.
+    // Best-effort teardown of a partially-constructed engine, then surface msg. Any
+    // worker threads are already joined by the caller (the only bringup_failed after
+    // thread spawn is the camera->start failure path), so ~Engine won't terminate().
     if (g) {
         if (g->camera) {
             g->camera->stop();
             g->camera->release();
+        }
+        if (g->zbar) {
+            zbar_image_scanner_destroy(g->zbar);
+            g->zbar = nullptr;
         }
         for (auto &kv : g->maps) {
             munmap(kv.second.mem, kv.second.len);
@@ -245,6 +342,7 @@ const char *camera_engine_start(int rotate, int target_fps) {
     g = new Engine();
     g->rotate = rotate;
     s_n_in.store(0); s_n_conv.store(0); s_n_pub.store(0);
+    s_n_dec.store(0); s_n_hit.store(0);
     camera_preview_get_sink_dims(&g->disp_w, &g->disp_h);
 
     g->manager = std::make_unique<CameraManager>();
@@ -279,6 +377,9 @@ const char *camera_engine_start(int rotate, int target_fps) {
     g->decode_stream  = g->config->at(0).stream();
     g->display_stream = g->config->at(1).stream();
     g->disp_ystride   = g->config->at(1).stride;
+    g->dec_w = kDecodeSide;
+    g->dec_h = kDecodeSide;
+    g->dec_ystride = g->config->at(0).stride;
 
     g->allocator = std::make_unique<FrameBufferAllocator>(g->camera);
     if (g->allocator->allocate(g->decode_stream) < 0 ||
@@ -301,6 +402,14 @@ const char *camera_engine_start(int rotate, int target_fps) {
         g->disp_uvstride = static_cast<int>(planes[1].length / (g->disp_h / 2));
         g->scratch.assign(g->disp_total, 0);
         g->ready_buf.assign(static_cast<size_t>(g->disp_w) * g->disp_h * 2, 0);
+    }
+    {
+        const auto &decbufs0 = g->allocator->buffers(g->decode_stream);
+        if (decbufs0.empty()) {
+            return bringup_failed("no decode buffers");
+        }
+        g->dec_ylen = decbufs0[0]->planes()[0].length;  // Y plane bytes (stride*h)
+        g->dec_scratch.assign(g->dec_ylen, 0);
     }
     for (Stream *s : { g->decode_stream, g->display_stream }) {
         for (const std::unique_ptr<FrameBuffer> &buf : g->allocator->buffers(s)) {
@@ -350,14 +459,30 @@ const char *camera_engine_start(int rotate, int target_fps) {
         controls.set(controls::FrameDurationLimits, Span<const int64_t, 2>({ fd, fd }));
     }
 
+    // zbar decoder, QR-only, cache disabled (the coordinator dedups; the cache would
+    // suppress re-reads of a held/animated QR that we need decoded every frame).
+    g->zbar = zbar_image_scanner_create();
+    if (!g->zbar) {
+        return bringup_failed("zbar scanner create failed");
+    }
+    zbar_image_scanner_set_config(g->zbar, ZBAR_NONE, ZBAR_CFG_ENABLE, 0);
+    zbar_image_scanner_set_config(g->zbar, ZBAR_QRCODE, ZBAR_CFG_ENABLE, 1);
+    zbar_image_scanner_enable_cache(g->zbar, 0);
+    scan_coord_reset();
+
     g->running.store(true, std::memory_order_release);
     g->blit = std::thread(blit_worker);
+    g->decode = std::thread(decode_worker);
 
     if (g->camera->start(&controls)) {
         g->running.store(false, std::memory_order_release);
         g->in_cv.notify_all();
+        g->dec_cv.notify_all();
         if (g->blit.joinable()) {
             g->blit.join();
+        }
+        if (g->decode.joinable()) {
+            g->decode.join();
         }
         g->camera->requestCompleted.disconnect(&on_request_completed);
         return bringup_failed("camera start failed");
@@ -378,8 +503,16 @@ void camera_engine_stop() {
         g->camera->requestCompleted.disconnect(&on_request_completed);
     }
     g->in_cv.notify_all();
+    g->dec_cv.notify_all();
     if (g->blit.joinable()) {
         g->blit.join();
+    }
+    if (g->decode.joinable()) {
+        g->decode.join();
+    }
+    if (g->zbar) {
+        zbar_image_scanner_destroy(g->zbar);
+        g->zbar = nullptr;
     }
     for (auto &kv : g->maps) {
         munmap(kv.second.mem, kv.second.len);
@@ -420,4 +553,9 @@ void camera_engine_stats(uint64_t *frames_in, uint64_t *frames_conv, uint64_t *f
     if (frames_in)   *frames_in   = s_n_in.load(std::memory_order_relaxed);
     if (frames_conv) *frames_conv = s_n_conv.load(std::memory_order_relaxed);
     if (frames_pub)  *frames_pub  = s_n_pub.load(std::memory_order_relaxed);
+}
+
+void camera_engine_decode_stats(uint64_t *attempts, uint64_t *hits) {
+    if (attempts) *attempts = s_n_dec.load(std::memory_order_relaxed);
+    if (hits)     *hits     = s_n_hit.load(std::memory_order_relaxed);
 }

@@ -150,6 +150,9 @@ void camera_preview_build_session(const std::string &instructions);
 void camera_preview_close_session();
 // Toggle the overlay's scanning state (shared by the binding + camera_scanner.start()).
 void camera_preview_set_scanning_active(bool active);
+// Drive the overlay bar/dot from camera_scanner.report() — arg order (frame_status,
+// percent) per the ESP contract (reverse of set_progress).
+void camera_preview_report(int frame_status, int percent);
 // Tear the live session down before lv_deinit() so its statics can't dangle into
 // the next lvgl_init(); called from lvgl_runtime_shutdown().
 void camera_preview_on_lvgl_shutdown();

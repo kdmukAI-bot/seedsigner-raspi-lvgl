@@ -45,4 +45,8 @@ void camera_engine_pump_consume();
 // sink (pub). All zero when no session has run. Used by camera_scanner._debug_stats.
 void camera_engine_stats(uint64_t *frames_in, uint64_t *frames_conv, uint64_t *frames_pub);
 
+// Decode-worker counters: zbar passes run (attempts) and passes that found >=1 QR
+// symbol (hits). attempts/elapsed is the decoder's frame rate. Zero when no session.
+void camera_engine_decode_stats(uint64_t *attempts, uint64_t *hits);
+
 #endif  // SS_CAMERA_ENGINE_H
