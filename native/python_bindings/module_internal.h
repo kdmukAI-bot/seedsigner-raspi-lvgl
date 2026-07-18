@@ -138,6 +138,7 @@ void mark_last_path_compiled();
 // camera_preview.cpp — live camera-preview scan surface (pixel sink + overlay)
 PyObject *py_camera_preview_screen(PyObject *self, PyObject *args);
 PyObject *py_camera_preview_set_frame(PyObject *self, PyObject *args);
+PyObject *py_camera_preview_set_frame_yuv420(PyObject *self, PyObject *args);
 PyObject *py_camera_preview_set_progress(PyObject *self, PyObject *args);
 PyObject *py_camera_preview_set_scanning(PyObject *self, PyObject *args);
 PyObject *py_camera_preview_close(PyObject *self, PyObject *args);

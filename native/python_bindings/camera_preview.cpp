@@ -219,6 +219,97 @@ PyObject *py_camera_preview_set_frame(PyObject *self, PyObject *args) {
     Py_RETURN_NONE;
 }
 
+// camera_preview_set_frame_yuv420(buf, src_w, src_h, y_stride, uv_stride, rotate) -> None
+// Convert a planar I420/YUV420 frame (Y plane, then U, then V; U/V at half resolution)
+// straight into the LVGL-native RGB565 sink, applying a 0/90/180/270-degree rotation.
+// The three planes are contiguous in buf at Y=0, U=y_stride*src_h, V=U+uv_stride*(src_h/2)
+// (the RPi vc4 YUV420 layout). No scaling: the ROTATED source dims must equal the sink
+// dims. This is the Phase-0 replacement for the old per-frame numpy RGB->RGB565 convert
+// (numpy is gone on the libcamera dev image); the platform owns the pixel plane, so the
+// host converts here rather than shipping pre-made RGB565. BT.601 studio-range coeffs.
+PyObject *py_camera_preview_set_frame_yuv420(PyObject *self, PyObject *args) {
+    (void)self;
+
+    Py_buffer view;
+    int src_w, src_h, y_stride, uv_stride, rotate;
+    if (!PyArg_ParseTuple(args, "y*iiiii", &view, &src_w, &src_h, &y_stride, &uv_stride, &rotate)) {
+        return nullptr;
+    }
+
+    if (!s_cam_img || !s_cam_data) {
+        PyBuffer_Release(&view);
+        Py_RETURN_NONE;  // no active session — no-op
+    }
+
+    if (src_w <= 0 || src_h <= 0 || (src_w & 1) || (src_h & 1) ||
+        y_stride < src_w || uv_stride < (src_w + 1) / 2) {
+        PyErr_SetString(PyExc_ValueError, "set_frame_yuv420: bad src dims/strides");
+        PyBuffer_Release(&view);
+        return nullptr;
+    }
+
+    const int  dst_w = static_cast<int>(s_cam_dsc.header.w);
+    const int  dst_h = static_cast<int>(s_cam_dsc.header.h);
+    const bool swap  = (rotate == 90 || rotate == 270);
+    const int  rot_w = swap ? src_h : src_w;
+    const int  rot_h = swap ? src_w : src_h;
+    if (rot_w != dst_w || rot_h != dst_h) {
+        PyErr_Format(PyExc_ValueError,
+                     "set_frame_yuv420: rotated src %dx%d != sink %dx%d (no scaling)",
+                     rot_w, rot_h, dst_w, dst_h);
+        PyBuffer_Release(&view);
+        return nullptr;
+    }
+
+    const size_t y_size  = static_cast<size_t>(y_stride) * src_h;
+    const size_t uv_size = static_cast<size_t>(uv_stride) * (src_h / 2);
+    const size_t need    = y_size + 2 * uv_size;
+    if (static_cast<size_t>(view.len) < need) {
+        PyErr_Format(PyExc_ValueError,
+                     "set_frame_yuv420: buffer %zd < needed %zu", (Py_ssize_t)view.len, need);
+        PyBuffer_Release(&view);
+        return nullptr;
+    }
+
+    const uint8_t *base = static_cast<const uint8_t *>(view.buf);
+    const uint8_t *Yp = base;
+    const uint8_t *Up = base + y_size;
+    const uint8_t *Vp = Up + uv_size;
+    uint16_t *dst = reinterpret_cast<uint16_t *>(s_cam_data);
+
+    for (int sy = 0; sy < src_h; ++sy) {
+        const uint8_t *yrow = Yp + static_cast<size_t>(sy) * y_stride;
+        const uint8_t *urow = Up + static_cast<size_t>(sy >> 1) * uv_stride;
+        const uint8_t *vrow = Vp + static_cast<size_t>(sy >> 1) * uv_stride;
+        for (int sx = 0; sx < src_w; ++sx) {
+            const int c = 298 * (static_cast<int>(yrow[sx]) - 16);
+            const int u = static_cast<int>(urow[sx >> 1]) - 128;
+            const int v = static_cast<int>(vrow[sx >> 1]) - 128;
+            int r = (c + 409 * v + 128) >> 8;
+            int g = (c - 100 * u - 208 * v + 128) >> 8;
+            int b = (c + 516 * u + 128) >> 8;
+            r = r < 0 ? 0 : (r > 255 ? 255 : r);
+            g = g < 0 ? 0 : (g > 255 ? 255 : g);
+            b = b < 0 ? 0 : (b > 255 ? 255 : b);
+            const uint16_t px = static_cast<uint16_t>(
+                ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3));
+
+            int dx, dy;
+            switch (rotate) {
+                case 90:  dx = src_h - 1 - sy; dy = sx;             break;
+                case 180: dx = src_w - 1 - sx; dy = src_h - 1 - sy; break;
+                case 270: dx = sy;             dy = src_w - 1 - sx; break;
+                default:  dx = sx;             dy = sy;             break;  // 0
+            }
+            dst[static_cast<size_t>(dy) * dst_w + dx] = px;
+        }
+    }
+
+    PyBuffer_Release(&view);
+    lv_obj_invalidate(s_cam_img);
+    Py_RETURN_NONE;
+}
+
 // --- Overlay state (a few updates/sec, never per frame) ---------------------
 // camera_preview_set_progress(percent: int, frame_status: int) -> None
 // frame_status: 0 none / 1 added(green) / 2 repeated(gray) / 3 miss(hidden),
