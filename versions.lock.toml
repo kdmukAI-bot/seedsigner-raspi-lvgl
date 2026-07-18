@@ -7,12 +7,12 @@
 python_soabi = "cpython-312-arm-linux-gnueabihf"
 python_ext_suffix = ".cpython-312-arm-linux-gnueabihf.so"
 # Ceilings for the runtime-compat gates in build_steps.sh. Target = SeedSigner OS
-# dev image (#110 + #114): glibc 2.40, Python 3.12.10. This (Phase 0) profile
-# still links libstdc++ statically, so GLIBCXX rarely appears as an external dep;
-# the ceilings state what the device runtime provides. (Phase 1 adds libcamera
-# and flips to shared libstdc++ — revisit max_glibcxx then.)
+# dev image #114: glibc 2.40, Python 3.12.10, libstdc++.so.6.0.32. The default
+# build links the native libcamera engine and therefore SHARED libstdc++, so
+# GLIBCXX now appears as an external dep; the ceilings state what the device
+# runtime provides (libstdc++.so.6.0.32 -> GLIBCXX_3.4.32).
 max_glibc = "GLIBC_2.40"
-max_glibcxx = "GLIBCXX_3.4.21"
+max_glibcxx = "GLIBCXX_3.4.32"
 
 [toolchain]
 arch = "armv6zk"

@@ -3,7 +3,9 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WS_ROOT="${WS_ROOT:-$(cd "${ROOT_DIR}/.." && pwd)}"
-IMAGE_TAG="${IMAGE_TAG:-ghcr.io/kdmukai-bot/seedsigner-raspi-lvgl/python-armv6:py310-dev}"
+# SeedSigner OS #114 (Python 3.12 / glibc 2.40) is the only target — py310/Buster
+# is retired. Default to the py312 base image (override IMAGE_TAG for a one-off).
+IMAGE_TAG="${IMAGE_TAG:-ghcr.io/kdmukai-bot/seedsigner-raspi-lvgl/python-armv6:py312-dev}"
 PLATFORM="${PLATFORM:-linux/arm/v6}"
 
 # Map host repo path into mounted container workspace deterministically.
@@ -26,7 +28,7 @@ docker image inspect "${IMAGE_TAG}" >/dev/null
 
 # Cache volumes: use host paths if set (for CI), otherwise Docker named volumes (for local).
 CCACHE_VOLUME="${CCACHE_HOST_DIR:-seedsigner-raspi-lvgl-ccache}"
-VENV_VOLUME="${VENV_HOST_DIR:-seedsigner-raspi-lvgl-venv}"
+VENV_VOLUME="${VENV_HOST_DIR:-seedsigner-raspi-lvgl-venv-py312}"
 CONTAINER_VENV_DIR="/root/.venv-build"
 
 docker run --rm --platform "${PLATFORM}" \
