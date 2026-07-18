@@ -12,6 +12,10 @@ __pycache__/
 .pytest_cache/
 build/
 logs/
+# Device-target link set (libcamera + DT_NEEDED closure) extracted from a
+# seedsigner-os buildroot output by scripts/extract-camera-sysroot.sh; build
+# input, never committed (re-runnable, tracks the flashed image).
+sysroot/
 *.so
 *.egg-info/
 *.core
