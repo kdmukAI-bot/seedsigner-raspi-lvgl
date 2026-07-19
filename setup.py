@@ -127,8 +127,9 @@ python_target_ldlibrary = os.environ.get("PYTHON_TARGET_LDLIBRARY", "").strip()
 # seedsigner_lvgl_screens extension, which shares libcamera's C++ objects across
 # the library boundary, so the whole extension MUST link SHARED libstdc++ (a
 # static copy would split the ABI) — the #114 device provides libstdc++.so.6.0.32.
-# libcamera + its headers come from the device sysroot extracted by
-# scripts/extract-camera-sysroot.sh (a required build input; sysroot/pi0-dev).
+# libcamera + its headers come from the target sysroot the build supplies via
+# CAMERA_SYSROOT -- the SeedSigner OS SDK image points it at /output/staging (see
+# docker/build_steps.sh and docs/knowledge/armv6-cross-compile-sdk.md).
 # CAMERA_ENGINE=0 opts out for a no-camera diagnostic build (static libstdc++, no
 # libcamera, no camera_scanner/camera_entropy submodules).
 camera_engine = os.environ.get("CAMERA_ENGINE", "1") == "1"

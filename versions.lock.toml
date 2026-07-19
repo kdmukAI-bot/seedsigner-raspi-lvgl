@@ -21,9 +21,9 @@ float_abi = "hard"
 fpu = "vfp"
 
 [python]
-# Interpreter baked into the py312-dev base image (docker/build_base_image.sh
-# PYTHON_VERSION). Device runtime is 3.12.10; only major.minor (3.12) drives SOABI.
-py312 = "3.12.3"
+# Interpreter the SDK image builds with: buildroot's own host Python, which is the
+# same 3.12.10 the device runs. Only major.minor (3.12) drives SOABI.
+py312 = "3.12.10"
 
 [build_tools]
 # ccache is baked into the base image; build_steps.sh falls back to plain
