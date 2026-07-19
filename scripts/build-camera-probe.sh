@@ -1,41 +1,37 @@
 #!/usr/bin/env bash
-# Cross-compile native/camera/probe/stream_probe.cpp in the py312-dev ARMv6
-# container against the extracted device sysroot (scripts/extract-camera-sysroot.sh
-# must have run). This is a dry run of the camera engine's exact link recipe:
+# Cross-compile native/camera/probe/stream_probe.cpp with the SeedSigner OS SDK.
+# ============================================================================
+# A dry run of the camera engine's exact link recipe, useful for isolating
+# libcamera problems from the rest of the extension:
 #
-#   - container g++ (Bullseye 8.4, glibc 2.31) compiles; the binary runs on the
-#     device (glibc 2.40) — forward-compatible by construction.
-#   - links the sysroot's libcamera v0.3.2 with SHARED libstdc++ (mandatory:
-#     C++ objects cross the libcamera ABI, so a static copy would split ABIs).
-#   - --allow-shlib-undefined: the sysroot libs reference GLIBC_2.38/GLIBCXX_3.4.32
-#     version nodes the container's runtime doesn't have; the device satisfies
-#     them, so the executable link must not try to prove closure here.
+#   - the buildroot cross toolchain compiles on x86; the binary runs on the device.
+#   - links the sysroot's libcamera with SHARED libstdc++ (mandatory: C++ objects
+#     cross the libcamera ABI, so a static copy would split ABIs).
+#   - --allow-shlib-undefined: the sysroot libs reference GLIBC/GLIBCXX version
+#     nodes the build host lacks; the device satisfies them, so the executable
+#     link must not try to prove closure here.
 #
 # Output: build/stream_probe (ARMv6 ELF, run on the dev device only).
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WS_ROOT="${WS_ROOT:-$(cd "${ROOT_DIR}/.." && pwd)}"
-IMAGE_TAG="${IMAGE_TAG:-codeberg.org/kdmukai-bot/seedsigner-raspi-lvgl/python-armv6:py312-dev}"
-PLATFORM="${PLATFORM:-linux/arm/v6}"
+IMAGE_TAG="${IMAGE_TAG:-ghcr.io/kdmukai-bot/seedsigner-raspi-lvgl/sdk-armv6:ss-os-0.8.0-81-gbfbd791}"
 
 REL_REPO_PATH="$(realpath --relative-to="${WS_ROOT}" "${ROOT_DIR}")"
 CONTAINER_REPO_DIR="/workspace/${REL_REPO_PATH}"
-SYSROOT="${CONTAINER_REPO_DIR}/sysroot/pi0-dev"
-
-[[ -f "${ROOT_DIR}/sysroot/pi0-dev/usr/lib/libcamera.so" ]] || {
-  echo "ERROR: sysroot missing — run scripts/extract-camera-sysroot.sh first" >&2
-  exit 1
-}
+# The SDK carries the target sysroot; no separate extraction step is needed.
+SYSROOT="${SYSROOT:-/output/staging}"
+CROSS_TUPLE="${CROSS_TUPLE:-arm-Buildroot-linux-gnueabihf}"
 
 mkdir -p "${ROOT_DIR}/build"
 
-docker run --rm --platform "${PLATFORM}" \
+docker run --rm \
   -v "${WS_ROOT}:/workspace" \
   -w "${CONTAINER_REPO_DIR}" \
   "${IMAGE_TAG}" \
   bash -ec "
-    g++ -std=c++17 -O2 \
+    ${CROSS_TUPLE}-g++ -std=c++17 -O2 \
       -march=armv6zk -mtune=arm1176jzf-s -marm -mfpu=vfp -mfloat-abi=hard \
       -I ${SYSROOT}/usr/include/libcamera \
       -o build/stream_probe native/camera/probe/stream_probe.cpp \
