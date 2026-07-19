@@ -1,6 +1,6 @@
 name: build
 
-# Read-only: the workflow only pulls the GHCR base image and uploads run-local
+# Read-only: the workflow only pulls the public SDK image and uploads run-local
 # artifacts; nothing writes to the repo or packages.
 permissions:
   contents: read
@@ -37,30 +37,33 @@ on:
       - 'sources/cUR'                      # submodule pointer bump (native cUR/uUR)
 
 env:
-  PY_SERIES: py310-dev
-  # Bot-hosted public base image: kdmukai-bot has the GHCR package-create perms
-  # the kdmukai personal account lacks, so every context (upstream pushes,
-  # bot-fork pushes, fork PRs) pulls this one public tag.
-  IMAGE_TAG: ghcr.io/kdmukai-bot/seedsigner-raspi-lvgl/python-armv6:py310-dev
+  # ARMv6 cross-compile SDK: the SeedSigner OS buildroot toolchain + the matching
+  # target sysroot (libcamera, zbar, Python 3.12 headers, glibc 2.40, libstdc++).
+  # The tag names the OS release the sysroot came from -- bumping the OS means
+  # rebuilding the SDK (docker/build_sdk_image.sh) and moving this tag together.
+  # Bot-hosted public image: kdmukai-bot has the GHCR package-create perms the
+  # kdmukai personal account lacks, so every context (upstream pushes, bot-fork
+  # pushes, fork PRs) pulls this one public tag.
+  IMAGE_TAG: ghcr.io/kdmukai-bot/seedsigner-raspi-lvgl/sdk-armv6:ss-os-0.8.0-81-gbfbd791
+  SDK_KEY: ss-os-0.8.0-81-gbfbd791
 
 jobs:
   build-armv6:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    # Cross-compiles natively on x86 (no QEMU), so the build is minutes, not the
+    # ~90 the emulated ARMv6 path needed.
+    timeout-minutes: 30
     steps:
       - name: Checkout seedsigner-raspi-lvgl
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
       - name: Preflight dependency path check
         run: bash scripts/ci-preflight.sh
 
-      - name: Pull base image
-        run: docker pull --platform linux/arm/v6 "${IMAGE_TAG}"
+      - name: Pull cross-compile SDK image
+        run: docker pull "${IMAGE_TAG}"
 
       - name: Restore ccache
         uses: actions/cache@v4
@@ -69,15 +72,16 @@ jobs:
           # Unique per-run key: actions/cache skips the post-job save on an
           # exact primary-key hit, which would freeze the cache forever after
           # its first save. A fresh key each run always saves the updated
-          # cache; restore-keys pulls the newest prior one.
-          key: ccache-build-${{ env.PY_SERIES }}-${{ github.run_id }}
+          # cache; restore-keys pulls the newest prior one. Keyed on the SDK so
+          # a toolchain change starts a clean cache rather than reusing objects
+          # built by a different compiler.
+          key: ccache-build-${{ env.SDK_KEY }}-${{ github.run_id }}
           restore-keys: |
-            ccache-build-${{ env.PY_SERIES }}-
+            ccache-build-${{ env.SDK_KEY }}-
 
-      - name: Build ARMv6 extension
+      - name: Cross-compile ARMv6 extensions
         env:
           WS_ROOT: ${{ github.workspace }}
-          PLATFORM: linux/arm/v6
           CCACHE_HOST_DIR: ${{ github.workspace }}/.ci-ccache
         run: |
           mkdir -p "${CCACHE_HOST_DIR}"
@@ -93,13 +97,12 @@ jobs:
           ART="$(ls -1 ${GITHUB_WORKSPACE}/src/seedsigner_lvgl_screens*.so | head -n1)"
           UUR="$(ls -1 ${GITHUB_WORKSPACE}/src/uUR*.so | head -n1)"
           echo "artifact=${ART}" >> "$GITHUB_OUTPUT"
-          echo "artifact_basename=$(basename "$ART")" >> "$GITHUB_OUTPUT"
           echo "uur=${UUR}" >> "$GITHUB_OUTPUT"
 
       - name: Upload extension artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: build-${{ env.PY_SERIES }}-${{ github.sha }}
+          name: build-${{ env.SDK_KEY }}-${{ github.sha }}
           path: |
             ${{ steps.art.outputs.artifact }}
             ${{ steps.art.outputs.uur }}

@@ -1,7 +1,7 @@
 # Secondary mirror CI (GitHub Actions is authoritative). Runs the same
 # ./run_build.sh entry as GitHub and local dev so there is one build path to
-# maintain; run_build.sh's named Docker volumes give the native runner
-# persistent ccache/venv across runs.
+# maintain; run_build.sh's named Docker volume gives the native runner a
+# persistent ccache across runs.
 name: build
 
 on:
@@ -37,24 +37,23 @@ jobs:
   build-armv6:
     runs-on: native
     env:
-      PY_SERIES: py310-dev
-      IMAGE_TAG: ghcr.io/kdmukai-bot/seedsigner-raspi-lvgl/python-armv6:py310-dev
+      # ARMv6 cross-compile SDK (SeedSigner OS buildroot toolchain + target
+      # sysroot). Cross-compiles natively on x86 -- no QEMU/binfmt needed.
+      IMAGE_TAG: ghcr.io/kdmukai-bot/seedsigner-raspi-lvgl/sdk-armv6:ss-os-0.8.0-81-gbfbd791
+      SDK_KEY: ss-os-0.8.0-81-gbfbd791
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Set up QEMU binfmt
-        run: docker run --privileged --rm tonistiigi/binfmt --install arm >/dev/null
-
       - name: Preflight dependency check
         run: bash scripts/ci-preflight.sh
 
-      - name: Pull base image
-        run: docker pull --platform linux/arm/v6 "${IMAGE_TAG}"
+      - name: Pull cross-compile SDK image
+        run: docker pull "${IMAGE_TAG}"
 
-      - name: Build ARMv6 extension
+      - name: Cross-compile ARMv6 extensions
         run: WS_ROOT="${GITHUB_WORKSPACE}" ./run_build.sh
 
       - name: Verify artifacts
@@ -65,7 +64,7 @@ jobs:
         uses: actions/upload-artifact@v3
         if: always()
         with:
-          name: build-${{ env.PY_SERIES }}
+          name: build-${{ env.SDK_KEY }}
           path: |
             src/seedsigner_lvgl_screens*.so
             src/uUR*.so
