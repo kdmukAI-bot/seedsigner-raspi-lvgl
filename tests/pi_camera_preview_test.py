@@ -105,8 +105,10 @@ def main() -> int:
             ev = lv.poll_for_result()
             if ev is not None:
                 print(f"[cam-preview]   result: {ev}")
-                kind, _index, _label = ev
-                if kind in ("topnav_back",):
+                kind, index, _label = ev
+                # Back is a button_selected sentinel (index 1000), not a distinct
+                # topnav_back kind — matches the ESP binding.
+                if kind == "button_selected" and index == 1000:  # RET_CODE__BACK_BUTTON
                     print("[cam-preview] back received — PASS.")
                     return 0
     finally:

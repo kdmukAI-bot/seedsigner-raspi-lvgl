@@ -255,12 +255,12 @@ SCREEN_BINDING(large_icon_status_screen)
 // SeedSigner keyboard flows via cfg: BIP-85 child index, custom derivation path,
 // dice-roll and coin-flip entropy (see the keys/keys_to_values/return_after_n_chars/
 // title_keystroke_template contract in the screens repo). The completed string is
-// delivered as a text_entered result; a top-nav back emits topnav_back.
+// delivered as a text_entered result; a top-nav back emits button_selected(1000).
 SCREEN_BINDING(keyboard_screen)
 
 // seed_add_passphrase_screen: BIP39 passphrase entry. Optional JSON ctx (top_nav,
 // initial_text, max_length, input mode override); with no cfg the C side applies
-// its defaults ("Enter Passphrase"). Result is text_entered or topnav_back.
+// its defaults ("Enter Passphrase"). Result is text_entered or button_selected(1000).
 SCREEN_BINDING_OPTIONAL_CFG(seed_add_passphrase_screen)
 
 // --- Seed flow ----------------------------------------------------------------
@@ -268,14 +268,14 @@ SCREEN_BINDING_OPTIONAL_CFG(seed_add_passphrase_screen)
 // seed_mnemonic_entry_screen: BIP39 seed-word entry (autocomplete keyboard over a
 // wordlist). cfg requires a "wordlist" (array of candidate words); optional
 // "initial_letters" / "initial_selected_word" prefill state. The accepted word is
-// delivered as a text_entered result; a top-nav back emits topnav_back.
+// delivered as a text_entered result; a top-nav back emits button_selected(1000).
 SCREEN_BINDING(seed_mnemonic_entry_screen)
 
 // seed_finalize_screen: shown after a seed loads — a fingerprint readout above a
 // bottom-pinned button list (Done / BIP-39 Passphrase, no back button). cfg requires
 // a "fingerprint" string; optional "fingerprint_label", "top_nav", and "button_list"
 // (defaults to ["Done"]). Buttons emit button_selected (Done=0, ...); an optional
-// power button emits topnav_power.
+// power button emits button_selected(1001).
 SCREEN_BINDING(seed_finalize_screen)
 
 // seed_export_xpub_details_screen: the xpub-export summary — fingerprint, derivation
@@ -283,14 +283,14 @@ SCREEN_BINDING(seed_finalize_screen)
 // privacy-warning edge, above a bottom button list. cfg requires "fingerprint" and
 // "xpub" strings; optional "derivation_path" (default m/84'/0'/0'), the three field
 // labels (fingerprint_label/derivation_label/xpub_label), "top_nav", and "button_list"
-// (defaults ["Export xpub"]). Buttons emit button_selected; back emits topnav_back.
+// (defaults ["Export xpub"]). Buttons emit button_selected; back emits button_selected(1000).
 SCREEN_BINDING(seed_export_xpub_details_screen)
 
 // seed_review_passphrase_screen: the entered BIP-39 passphrase (orange, fixed-width,
 // centered, up to 3 lines) above a fingerprint IconTextLine spelling out how it changes
 // the seed's fingerprint (without >> with). cfg requires a "passphrase" string; optional
 // "fingerprint_without"/"fingerprint_with", "changes_fingerprint_label", "top_nav", and
-// "button_list" (defaults ["Done"]). Buttons emit button_selected; back emits topnav_back.
+// "button_list" (defaults ["Done"]). Buttons emit button_selected; back emits button_selected(1000).
 SCREEN_BINDING(seed_review_passphrase_screen)
 
 // seed_words_screen: one host-paginated page of a seed's words, each numbered in a
@@ -298,7 +298,7 @@ SCREEN_BINDING(seed_review_passphrase_screen)
 // a bottom button list. cfg requires a non-empty "words" array; optional "page_index"
 // (default 0), "num_pages" (default 1) for the default "Seed Words: n/N" title,
 // "start_number" (1-based number of this page's first word), "top_nav", and "button_list"
-// (defaults ["Done"]). Buttons emit button_selected; back emits topnav_back.
+// (defaults ["Done"]). Buttons emit button_selected; back emits button_selected(1000).
 SCREEN_BINDING(seed_words_screen)
 
 // --- QR display / SeedQR transcription ---------------------------------------
@@ -317,7 +317,7 @@ SCREEN_BINDING(seed_transcribe_whole_qr_screen)
 // generic button_list_screen's single intro block won't do). cfg requires "top_nav.title",
 // a non-empty "button_list" (the per-seed-length "Standard: NxN" / "Compact: MxM"
 // choices), and the four localized row strings "standard_label"/"standard_text"/
-// "compact_label"/"compact_text". Result button_selected or topnav_back.
+// "compact_label"/"compact_text". Result button_selected (back = index 1000).
 SCREEN_BINDING(seed_transcribe_seedqr_format_screen)
 
 // seed_transcribe_zoomed_qr_screen: a full-bleed, pannable zoomed view of a SeedQR /
@@ -327,7 +327,7 @@ SCREEN_BINDING(seed_transcribe_seedqr_format_screen)
 // (numeric|alphanumeric|byte|auto, default numeric), "data_encoding" (utf8|hex|base64,
 // default utf8), "exit_text" (pre-translated bottom hint), and "initial_zone_x"/
 // "initial_zone_y" (default 0). Purely static — no host frame push. Exit (joystick click /
-// any non-arrow key / close X) emits topnav_back.
+// any non-arrow key / close X) emits button_selected(1000).
 SCREEN_BINDING(seed_transcribe_zoomed_qr_screen)
 
 // qr_display_screen: native QR display (static and host-driven animated). cfg requires
@@ -335,7 +335,7 @@ SCREEN_BINDING(seed_transcribe_zoomed_qr_screen)
 // For a STATIC QR the host builds once and does nothing further. For an ANIMATED QR the
 // host pushes each frame with qr_display_set_frame() and honors
 // qr_display_is_tip_active() (hold while true). On exit the screen emits a
-// qr_brightness result (final brightness) followed by topnav_back.
+// qr_brightness result (final brightness) followed by button_selected(1000).
 SCREEN_BINDING(qr_display_screen)
 
 // --- Splash / loading ---------------------------------------------------------
@@ -363,7 +363,7 @@ SCREEN_BINDING_OPTIONAL_CFG(loading_spinner_screen)
 
 // --- PSBT transaction review ----------------------------------------------
 // The native screens SeedSigner's PSBT-review flow walks through, each emitting
-// button_selected / topnav_back like the other button-list screens. They follow
+// button_selected (back = index 1000) like the other button-list screens. They follow
 // the host-formats / C-renders split: the host owns all i18n + number/address
 // formatting (btc_amount strings, digit grouping, address derivation) and passes
 // the finished pieces; these screens only lay them out, so the Pi and ESP32 can
@@ -397,7 +397,7 @@ SCREEN_BINDING(psbt_math_screen)
 // psbt_op_return_screen: the PSBT OP_RETURN data review — raw "hex" and/or decoded
 // "text" under a caption, above a bottom button list. cfg all-optional: "hex", "text",
 // "hex_label" (default "raw hex data"), "button_list" (default ["Done"]), "top_nav"
-// (title default "OP_RETURN"). Result button_selected or topnav_back.
+// (title default "OP_RETURN"). Result button_selected (back = index 1000).
 SCREEN_BINDING(psbt_op_return_screen)
 
 // --- Remaining SeedSigner flows ---------------------------------------------
@@ -451,7 +451,7 @@ SCREEN_BINDING(settings_qr_confirmation_screen)
 // "button_list"; the header is one of two OPTIONAL shapes (a header-less call is
 // tolerated): single-sig seed -> "fingerprint" + "fingerprint_label" +
 // "derivation_text" + "derivation_label" (all required together); loaded descriptor ->
-// "wallet_descriptor_text" + "wallet_descriptor_label". Result button_selected or topnav_back.
+// "wallet_descriptor_text" + "wallet_descriptor_label". Result button_selected (back = index 1000).
 SCREEN_BINDING(tools_address_explorer_address_type_screen)
 
 // tools_address_explorer_address_list_screen: the Address Explorer list — a
@@ -487,7 +487,7 @@ SCREEN_BINDING(reset_screen)
 
 // power_off_not_required_screen: the "Just Unplug It" advisory — one centered
 // wrapped message; back button shown. cfg all-optional: "text", "top_nav" (title
-// default "Just Unplug It"). Result topnav_back.
+// default "Just Unplug It"). Result button_selected(1000).
 SCREEN_BINDING(power_off_not_required_screen)
 
 // power_options_screen: the "Reset / Power" menu — Python's LargeButtonScreen with a
@@ -495,12 +495,12 @@ SCREEN_BINDING(power_off_not_required_screen)
 // point (the shared large_button_grid geometry main_menu also uses). cfg requires
 // "top_nav.title" and a "button_list" of EXACTLY 2 or 4 items (each a label + icon glyph,
 // the same flat shape button_list_screen takes; e.g. "Restart"/"Power off"). Pressing a
-// tile emits button_selected(index); back emits topnav_back.
+// tile emits button_selected(index); back emits button_selected(1000).
 SCREEN_BINDING(power_options_screen)
 
 // donate_screen: body text over a URL (default "seedsigner.com") in a scroll
 // container; back shown. cfg all-optional: "text", "url", "top_nav" (title
-// default "Donate"). Result topnav_back.
+// default "Donate"). Result button_selected(1000).
 SCREEN_BINDING(donate_screen)
 
 // io_test_screen: the hardware I/O self-test — a capture pictogram with per-key
@@ -519,7 +519,8 @@ SCREEN_BINDING(io_test_screen)
 
 // button_list_screen: the workhorse list screen. The ONE strictly-validated cfg
 // (top_nav.title + button_list required; see validate_button_list_cfg). Buttons
-// emit button_selected(index, label); back/power emit topnav_back/topnav_power.
+// emit button_selected(index, label); back/power emit button_selected with index
+// 1000/1001 (RET_CODE__BACK/POWER_BUTTON).
 PyObject *py_button_list_screen(PyObject *self, PyObject *args) {
     (void)self;
 

@@ -39,7 +39,7 @@ def test_native_module_import_and_queue_shape():
     ev = mod.poll_for_result()
     assert ev is not None
     assert isinstance(ev, tuple) and len(ev) == 3
-    assert ev[0] in ("button_selected", "topnav_back", "topnav_power")
+    assert ev[0] == "button_selected"
     mod.lvgl_shutdown()
 
 
@@ -361,21 +361,23 @@ def test_psbt_screens_render():
     mod.lvgl_shutdown()
 
 
-def test_callback_driven_topnav_and_ordering():
+def test_callback_driven_reserved_codes_and_ordering():
     mod = _native_or_skip()
     mod.clear_result_queue()
 
-    # Reserved result codes arrive in the index slot (SEEDSIGNER_RET_* in
-    # seedsigner.h): 1000 = back, 1001 = power, 1100 = screensaver dismiss.
-    # Body buttons emit their 0-based index. label is informational only.
+    # Reserved result codes ride in the index slot (SEEDSIGNER_RET_* in seedsigner.h):
+    # 1000 = back, 1001 = power, 1100 = screensaver dismiss. They are NOT distinct
+    # kinds — every selection is a button_selected carrying the raw index, matching the
+    # ESP binding so both platforms return identical tuples. Body buttons emit their
+    # 0-based index. label is informational only.
     mod._debug_emit_result("back", 1000)
     mod._debug_emit_result("power", 1001)
     mod._debug_emit_result("screensaver_dismiss", 1100)
     mod._debug_emit_result("First", 1)
 
-    assert mod.poll_for_result() == ("topnav_back", -1, "back")
-    assert mod.poll_for_result() == ("topnav_power", -1, "power")
-    assert mod.poll_for_result() == ("button_selected", -1, "screensaver_dismiss")
+    assert mod.poll_for_result() == ("button_selected", 1000, "back")
+    assert mod.poll_for_result() == ("button_selected", 1001, "power")
+    assert mod.poll_for_result() == ("button_selected", 1100, "screensaver_dismiss")
     assert mod.poll_for_result() == ("button_selected", 1, "First")
     assert mod.poll_for_result() is None
 

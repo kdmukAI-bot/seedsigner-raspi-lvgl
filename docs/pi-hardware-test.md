@@ -74,7 +74,7 @@ The test renders screens on the ST7789 display and waits for real input:
 
 After each interaction, the script prints the event tuple:
 - `("button_selected", 0, "Alpha")` — body button selected
-- `("topnav_back", -1, "back")` — back pressed via top nav
+- `("button_selected", 1000, "back")` — back pressed via top nav (RET_CODE__BACK_BUTTON sentinel)
 
 ### What to verify
 

@@ -74,12 +74,14 @@ def format_event(event):
     if event is None:
         return "None (no event)"
     kind, index, label = event
-    if kind == "topnav_back":
-        return "BACK (top nav)"
-    if kind == "topnav_power":
-        return "POWER (top nav)"
     if kind == "button_selected":
-        if label == "screensaver_dismiss":
+        # Reserved codes ride in the index slot (seedsigner.h); back/power/screensaver
+        # are button_selected sentinels, not distinct kinds (matches the ESP binding).
+        if index == 1000:  # SEEDSIGNER_RET_BACK_BUTTON
+            return "BACK (top nav)"
+        if index == 1001:  # SEEDSIGNER_RET_POWER_BUTTON
+            return "POWER (top nav)"
+        if index == 1100 or label == "screensaver_dismiss":  # SEEDSIGNER_RET_SCREENSAVER_DISMISS
             return "SCREENSAVER DISMISSED (any key)"
         return f"button #{index}: {label!r}"
     return f"{kind} index={index} label={label!r}"
