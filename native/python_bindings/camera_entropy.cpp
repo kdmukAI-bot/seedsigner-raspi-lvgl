@@ -9,7 +9,9 @@
 //   frames_chained()        live count for a progress indicator
 //   capture()               pin exposure + latch the final frame
 //   get_result()            (chain, frame, n) | None  (poll a few ms after capture)
+//                           chain/frame are MUTABLE bytearrays — see secure_zero()
 //   resume()                discard the latch, resume chaining (reshoot)
+//   secure_zero(buf)        wipe a writable buffer in place (the get_result() counterpart)
 //   stop() / is_running() / set_labels(...)
 // The host computes the entropy as sha256(chain + frame); the chain EXCLUDES the latched
 // final image (see helpers/mnemonic_generation.generate_mnemonic_from_camera_entropy).
@@ -19,6 +21,7 @@
 
 #include "camera_entropy_engine.h"   // native libcamera entropy engine (Python-free)
 #include "camera_engine.h"           // camera_engine_is_running() — §4.11 mutual-exclusion guard
+#include "secure_zero.h"             // ss_secure_zero() — backs the secure_zero() binding
 #include "camera_error.h"            // CAMERA_ERR_* codes + camera_error_str()
 #include "entropy_coordinator.h"     // chain + latch state (get_result / frames_chained)
 #include "camera_preview_sink.h"     // camera_preview_session_active / _get_sink_dims (shared sink)
@@ -176,7 +179,7 @@ static PyObject *mp_camera_entropy_capture(PyObject *self, PyObject *args) {
     Py_RETURN_NONE;
 }
 
-// get_result() -> (chain: bytes, frame: bytes, n: int) | None. None until the latch
+// get_result() -> (chain: bytearray, frame: bytearray, n: int) | None. None until the latch
 // completes after capture() (poll a few ms). On the first success, build the display-filling
 // CONFIRM review image (color-preserving contrast stretch) and advance the overlay to CONFIRM.
 static PyObject *mp_camera_entropy_get_result(PyObject *self, PyObject *args) {
@@ -184,21 +187,73 @@ static PyObject *mp_camera_entropy_get_result(PyObject *self, PyObject *args) {
     (void)args;
     const uint8_t *chain = NULL, *frame = NULL;
     size_t chain_len = 0, frame_len = 0;
+    int frame_w = 0, frame_h = 0;
     uint32_t n = 0;
-    if (!entropy_coord_get_result(&chain, &chain_len, &frame, &frame_len, &n)) {
+    if (!entropy_coord_get_result(&chain, &chain_len, &frame, &frame_len,
+                                  &frame_w, &frame_h, &n)) {
         Py_RETURN_NONE;
     }
     if (s_await_confirm) {
         s_await_confirm = false;
-        int sw = 0, sh = 0;
-        camera_preview_get_sink_dims(&sw, &sh);
-        camera_entropy_build_confirm_image(frame, sw, sh);  // DISPLAY-ONLY (not chained)
+        // The latched frame's OWN dims — it is the engine's wide still stream, not a
+        // sink-sized preview frame, so the sink dims would describe the wrong image.
+        camera_entropy_build_confirm_image(frame, frame_w, frame_h);  // DISPLAY-ONLY (not chained)
         camera_entropy_set_phase(CAM_ENTROPY_PHASE_CONFIRM);
     }
-    return Py_BuildValue("(y#y#I)",
-                         reinterpret_cast<const char *>(chain), (Py_ssize_t)chain_len,
-                         reinterpret_cast<const char *>(frame), (Py_ssize_t)frame_len,
-                         (unsigned)n);
+    // MUTABLE bytearrays, not bytes. Both are direct seed-derivation inputs, and the
+    // interpreter copy is the one buffer the native scrub cannot reach: immutable bytes
+    // could only be de-referenced, leaving the scene image and the chain digest in the
+    // Python heap until the allocator happened to reuse them. Handing back mutable buffers
+    // lets the app overwrite them in place once the seed is derived. Final hashing stays in
+    // Python (unchanged). Mirrors the MicroPython binding's mp_obj_new_bytearray().
+    //
+    // Every successful call mints FRESH copies — call once and hold the result. Polling
+    // after the latch would leave additional unscrubbed ~1MB buffers behind.
+    PyObject *chain_obj = PyByteArray_FromStringAndSize(
+        reinterpret_cast<const char *>(chain), (Py_ssize_t)chain_len);
+    if (!chain_obj) {
+        return NULL;
+    }
+    PyObject *frame_obj = PyByteArray_FromStringAndSize(
+        reinterpret_cast<const char *>(frame), (Py_ssize_t)frame_len);
+    if (!frame_obj) {
+        Py_DECREF(chain_obj);
+        return NULL;
+    }
+    // "N" steals both references (they are already owned here, unlike "O").
+    return Py_BuildValue("(NNI)", chain_obj, frame_obj, (unsigned)n);
+}
+
+// secure_zero(buf) -> None. Overwrite a writable buffer in place with zeros, through the
+// same DSE-proof primitive the native latch scrub uses (secure_zero.h) — the compiler may
+// not elide it, which a Python-level loop cannot guarantee and a C-level memset before free
+// demonstrably does not.
+//
+// The counterpart to get_result()'s mutable bytearrays: the app derives the seed, then hands
+// each raw camera buffer back here to be wiped before dropping the reference. Doing the wipe
+// natively also matters for speed — the final still is ~1MB, and a per-byte Python loop over
+// it on an ARMv6 is far slower than one pass of memset.
+//
+// Requires a WRITABLE buffer. Immutable bytes raise rather than silently doing nothing:
+// a scrub that quietly no-ops is worse than no scrub, because the caller believes it worked.
+static PyObject *mp_camera_entropy_secure_zero(PyObject *self, PyObject *args) {
+    (void)self;
+    PyObject *obj = NULL;
+    if (!PyArg_ParseTuple(args, "O", &obj)) {
+        return NULL;
+    }
+    Py_buffer view;
+    if (PyObject_GetBuffer(obj, &view, PyBUF_WRITABLE) < 0) {
+        PyErr_SetString(PyExc_TypeError,
+                        "secure_zero() requires a writable buffer (bytearray/memoryview); "
+                        "immutable bytes cannot be scrubbed in place");
+        return NULL;
+    }
+    if (view.buf && view.len > 0) {
+        ss_secure_zero(view.buf, static_cast<size_t>(view.len));
+    }
+    PyBuffer_Release(&view);
+    Py_RETURN_NONE;
 }
 
 // resume() -> None. Discard the latch, unfreeze/re-enable auto exposure, resume chaining.
@@ -227,7 +282,13 @@ static PyMethodDef camera_entropy_methods[] = {
     {"capture", mp_camera_entropy_capture, METH_NOARGS,
      "capture(): pin exposure + latch the final frame."},
     {"get_result", mp_camera_entropy_get_result, METH_NOARGS,
-     "get_result() -> (chain, frame, n) | None: the frozen result after capture()."},
+     "get_result() -> (chain, frame, n) | None: the frozen result after capture(). "
+     "chain/frame are MUTABLE bytearrays so the caller can scrub them in place after "
+     "deriving the seed; each successful call returns fresh copies, so call it once."},
+    {"secure_zero", mp_camera_entropy_secure_zero, METH_VARARGS,
+     "secure_zero(buf): overwrite a writable buffer (bytearray/memoryview) with zeros "
+     "in place, via a scrub the optimizer cannot elide. Raises TypeError on immutable "
+     "bytes. Use on the chain/frame from get_result() once the seed is derived."},
     {"resume", mp_camera_entropy_resume, METH_NOARGS,
      "resume(): discard the latch and resume chaining (reshoot)."},
     {NULL, NULL, 0, NULL},

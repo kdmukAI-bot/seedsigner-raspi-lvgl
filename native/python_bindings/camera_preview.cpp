@@ -31,7 +31,7 @@
 #include "camera_preview_overlay.h"   // camera_preview_overlay_* (portable, called as a black box)
 #include "camera_preview_sink.h"      // the Python-free sink bridge the native engine calls
 #include "camera_entropy_overlay.h"   // camera_entropy_overlay_* (portable image-entropy chrome)
-#include "image_entropy.h"            // image_entropy_process (portable contrast stretch + crop-to-fill)
+#include "image_entropy.h"            // image_entropy_process (portable contrast stretch + aspect-fit)
 
 #include <cstring>                    // memcpy
 #include <stdexcept>
@@ -270,12 +270,17 @@ void camera_entropy_set_phase(int phase) {
     }
 }
 
-// Build the CONFIRM review image from the latched RAW frame: crop-to-fill + color-preserving
-// luminance contrast stretch (portable image_entropy_process) into a display-sized RGB565
-// buffer, then hand it to the overlay (which deep-copies it). DISPLAY-ONLY — never fed back
-// into the entropy chain. `raw_rgb565` is the sink-square latched frame (square_w x square_h).
-void camera_entropy_build_confirm_image(const uint8_t *raw_rgb565, int square_w, int square_h) {
-    if (!s_entropy_overlay || !raw_rgb565 || square_w <= 0 || square_h <= 0) {
+// Build the CONFIRM review image from the latched RAW frame: aspect-fit with a capped
+// letterbox + color-preserving luminance contrast stretch (portable image_entropy_process)
+// into a display-sized RGB565 buffer, then hand it to the overlay (which deep-copies it).
+// DISPLAY-ONLY — never fed back into the entropy chain.
+//
+// `raw_rgb565` is the engine's wide, high-resolution still (src_w x src_h in DISPLAY
+// orientation) — NOT a sink-sized frame, and not necessarily square. Callers must pass the
+// latched frame's own dimensions (entropy_coord_get_result reports them); image_entropy_process
+// box-filters the downscale, which is what makes the extra capture resolution worth having.
+void camera_entropy_build_confirm_image(const uint8_t *raw_rgb565, int src_w, int src_h) {
+    if (!s_entropy_overlay || !raw_rgb565 || src_w <= 0 || src_h <= 0) {
         return;
     }
     if (!lvgl_runtime_is_inited()) {
@@ -284,7 +289,7 @@ void camera_entropy_build_confirm_image(const uint8_t *raw_rgb565, int square_w,
     const int32_t dw = lv_display_get_horizontal_resolution(NULL);
     const int32_t dh = lv_display_get_vertical_resolution(NULL);
     std::vector<uint16_t> disp(static_cast<size_t>(dw) * static_cast<size_t>(dh));
-    image_entropy_process(raw_rgb565, square_w, square_h, IMAGE_ENTROPY_PIXFMT_RGB565,
+    image_entropy_process(raw_rgb565, src_w, src_h, IMAGE_ENTROPY_PIXFMT_RGB565,
                           disp.data(), dw, dh);
     camera_entropy_overlay_set_confirm_image(s_entropy_overlay, disp.data(), dw, dh);
 }

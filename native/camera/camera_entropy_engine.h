@@ -2,17 +2,37 @@
 //
 // Sibling of camera_engine (QR scan), sharing the SAME single-CameraManager invariant
 // (§4.11 — the two engines are mutually exclusive; each refuses to start while the other
-// holds the camera). Simpler than the scan engine: ONE YUV420 stream at the display-sink
-// size (centered-square, converged 3A), a blit worker that converts YUV420 -> RGB565 into
-// the shared camera_preview sink AND chains each preview frame into the entropy digest
-// (entropy_coordinator). Python does nothing per displayed frame.
+// holds the camera). Like the scan engine it runs TWO YUV420 streams: a preview at the
+// display-sink size (which a blit worker converts to RGB565 into the shared camera_preview
+// sink AND chains into the entropy digest), plus a higher-resolution still stream that
+// supplies the one final frame. Python does nothing per displayed frame.
 //
-// Capture is the "2B" pinned-exposure path: capture() snapshots the live session's last
-// converged exposure/gain/colour-gains, pins them (AeEnable/AwbEnable=false + those
-// values), lets the pin settle a few frames, then latches that stabilized frame as the
-// final image — so the latched frame is well-exposed and stable rather than a raw preview
-// frame mid-AE-adjustment. The chain digest + latched frame are owned by the
-// entropy_coordinator; the binding reads results from there.
+// Capture is the "2B" pinned-exposure path plus a real still. capture() snapshots the live
+// session's last converged exposure/gain/colour-gains, pins them (AeEnable/AwbEnable=false
+// + those values), lets the pin settle a few frames, then latches a frame off the STILL
+// stream. So the final image is well-exposed and stable rather than a raw preview frame
+// mid-AE-adjustment, AND it is a genuine high-resolution still rather than a copy of the
+// 240x240 preview — which is what the PIL flow's start_single_frame_mode() used to provide
+// and the first native cut dropped.
+//
+// Two things to know before touching this file:
+//
+//   - The still is the preview's geometry at kStillScale x resolution: SAME aspect, SAME
+//     ScalerCrop, SAME field of view. That is load-bearing, not incidental. libcamera 0.3.2
+//     exposes ONE global ScalerCrop shared by all streams (no per-stream ScalerCrops), so a
+//     differently-shaped still would require swapping the crop mid-session — which renders
+//     the preview stream visibly squeezed for the frames the reframe needs to work through
+//     the pipeline, at capture AND on the first frames after a reshoot. Matching the preview
+//     means the crop is set once and never touched. See kStillScale for why a wider still
+//     also gains nothing on this sensor.
+//   - still_w/still_h are POST-rotation dims and are derived, not assumed equal to the
+//     sensor-space size. On the square Pi Zero sink they coincide; on a non-square sink they
+//     do not, and this path stays correct where the preview path does not (see
+//     docs/nonsquare-panel-preview-rotation-todo.md).
+//
+// The chain digest + latched frame are owned by the entropy_coordinator; the binding reads
+// results from there, including the latched frame's dimensions — they are NOT the sink
+// dims and must never be inferred as such.
 //
 // Python-free AND libcamera-free header (only camera_entropy_engine.cpp includes
 // <libcamera/...>), so the camera_entropy binding includes just this.
