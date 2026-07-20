@@ -18,6 +18,7 @@ static PyMethodDef methods[] = {
     {"restore_screen", py_restore_screen, METH_NOARGS, "Restore previously saved LVGL screen."},
     {"clear_screen", py_clear_screen, METH_NOARGS, "Clear display to black."},
     {"set_screensaver_timeout", py_set_screensaver_timeout, METH_VARARGS, "set_screensaver_timeout(ms): idle ms before the native screensaver activates (0 disables)."},
+    {"set_camera_rotation", py_set_camera_rotation, METH_VARARGS, "set_camera_rotation(degrees): sticky camera rotation for BOTH camera flows. Pass the raw app setting (0/90/180/270); the sensor-mount base is composed natively. Applies to the next start()."},
 
     // --- Native ST7789 display backend (display_st7789.cpp) -----------------
     {"native_display_init", (PyCFunction)py_native_display_init, METH_VARARGS | METH_KEYWORDS, "Init native ST7789 backend."},

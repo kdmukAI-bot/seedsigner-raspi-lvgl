@@ -5,6 +5,7 @@
 // the blit worker chains each preview frame into the entropy digest. Capture pins the
 // converged exposure/AWB and latches a stabilized frame (the "2B" path).
 #include "camera_entropy_engine.h"
+#include "camera_config.h"
 #include "camera_error.h"
 
 #include "camera_engine.h"          // camera_engine_is_running() — mutual-exclusion guard (§4.11)
@@ -292,7 +293,7 @@ int bringup_failed(int code) {
 
 }  // namespace
 
-int camera_entropy_engine_start(int rotate, int target_fps) {
+int camera_entropy_engine_start() {
     if (g) {
         return CAMERA_ERR_ALREADY_RUNNING;
     }
@@ -304,7 +305,9 @@ int camera_entropy_engine_start(int rotate, int target_fps) {
     }
 
     g = new Engine();
-    g->rotate = rotate;
+    // Same sticky device setting the scan engine reads (camera_config.h), so both
+    // flows honour one rotation.
+    g->rotate = camera_config_effective_rotation();
     g->conv_count.store(0);
     camera_preview_get_sink_dims(&g->disp_w, &g->disp_h);
 
@@ -391,8 +394,8 @@ int camera_entropy_engine_start(int rotate, int target_fps) {
                                max.y + static_cast<int>((max.height - side) / 2),
                                side, side));
     }
-    if (target_fps > 0) {
-        int64_t fd = 1000000 / target_fps;
+    {
+        int64_t fd = 1000000 / CAMERA_TARGET_FPS;
         controls.set(controls::FrameDurationLimits, Span<const int64_t, 2>({ fd, fd }));
     }
 

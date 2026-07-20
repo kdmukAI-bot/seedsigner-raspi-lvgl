@@ -104,6 +104,7 @@ PyObject *py_save_screen(PyObject *self, PyObject *args);
 PyObject *py_restore_screen(PyObject *self, PyObject *args);
 PyObject *py_clear_screen(PyObject *self, PyObject *args);
 PyObject *py_set_screensaver_timeout(PyObject *self, PyObject *args);
+PyObject *py_set_camera_rotation(PyObject *self, PyObject *args);
 
 // display_st7789.cpp
 PyObject *py_native_display_init(PyObject *self, PyObject *args, PyObject *kwargs);

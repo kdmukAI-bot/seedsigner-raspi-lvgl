@@ -43,7 +43,19 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # Load .env (repo root) if present; process env still overrides it.
-if [ -f "$REPO_ROOT/.env" ]; then set -a; . "$REPO_ROOT/.env"; set +a; fi
+#
+# Sourcing alone does NOT give that precedence: a plain `VAR=value` line in .env
+# overwrites an already-exported VAR, so `SS_APP_DIR=... ./deploy-dev.sh` would
+# silently deploy whatever .env names instead — the wrong tree, with a successful
+# -looking run. Snapshot the caller's SS_* vars and re-apply them after sourcing.
+if [ -f "$REPO_ROOT/.env" ]; then
+  declare -A _ss_override=()
+  while IFS= read -r _k; do _ss_override["$_k"]="${!_k}"; done \
+    < <(env | sed -n 's/^\(SS_[A-Za-z0-9_]*\)=.*/\1/p')
+  set -a; . "$REPO_ROOT/.env"; set +a
+  for _k in "${!_ss_override[@]}"; do printf -v "$_k" '%s' "${_ss_override[$_k]}"; done
+  unset _ss_override _k
+fi
 
 # --- Config (env-driven) -----------------------------------------------------
 : "${SS_DEVICE:?set SS_DEVICE (e.g. root@seedsigner.local) — see .env.example}"

@@ -15,6 +15,7 @@
 // {ready_buf, dirty} (blit worker <-> pump). The manager thread touches only in_mtx,
 // so a busy pump can never stall 3A.
 #include "camera_engine.h"
+#include "camera_config.h"
 #include "camera_error.h"
 #include "camera_preview_sink.h"
 #include "scan_coordinator.h"
@@ -332,7 +333,7 @@ int bringup_failed(int code) {
 
 }  // namespace
 
-int camera_engine_start(int rotate, int target_fps) {
+int camera_engine_start() {
     if (g) {
         return CAMERA_ERR_ALREADY_RUNNING;
     }
@@ -341,7 +342,9 @@ int camera_engine_start(int rotate, int target_fps) {
     }
 
     g = new Engine();
-    g->rotate = rotate;
+    // Sticky device setting, sampled once per session: the user's delta composed
+    // with the sensor-mount base (camera_config.h).
+    g->rotate = camera_config_effective_rotation();
     s_n_in.store(0); s_n_conv.store(0); s_n_pub.store(0);
     s_n_dec.store(0); s_n_hit.store(0);
     camera_preview_get_sink_dims(&g->disp_w, &g->disp_h);
@@ -455,8 +458,8 @@ int camera_engine_start(int rotate, int target_fps) {
                                max.y + static_cast<int>((max.height - side) / 2),
                                side, side));
     }
-    if (target_fps > 0) {
-        int64_t fd = 1000000 / target_fps;
+    {
+        int64_t fd = 1000000 / CAMERA_TARGET_FPS;
         controls.set(controls::FrameDurationLimits, Span<const int64_t, 2>({ fd, fd }));
     }
 
