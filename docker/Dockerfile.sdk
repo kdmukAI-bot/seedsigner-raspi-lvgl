@@ -1,0 +1,64 @@
+# syntax=docker/dockerfile:1
+# Cross-compile SDK for the Pi Zero extension.
+#
+# Carries the SeedSigner OS buildroot cross toolchain + the matching target
+# sysroot, so the extension is compiled BY the device's own toolchain AGAINST the
+# device's own libraries -- on x86, at native speed, with no QEMU.
+#
+# Base is debian:12-slim to match the toolchain's host requirement: the buildroot
+# host binaries reference at most GLIBC_2.36, which is what bookworm provides.
+FROM debian:12-slim
+
+# Provenance of the buildroot output baked in below. Supplied by
+# docker/build_sdk_image.sh from the seedsigner-os checkout it extracted from.
+ARG SS_OS_COMMIT=unknown
+ARG SS_OS_DESCRIBE=unknown
+ARG BUILDROOT_COMMIT=unknown
+
+LABEL org.seedsigner.ss-os-commit="${SS_OS_COMMIT}" \
+      org.seedsigner.ss-os-describe="${SS_OS_DESCRIBE}" \
+      org.seedsigner.buildroot-commit="${BUILDROOT_COMMIT}" \
+      org.opencontainers.image.description="ARMv6 cross-compile SDK (toolchain + target sysroot) from SeedSigner OS ${SS_OS_DESCRIBE}"
+
+# python3-pytest is Debian's PURE-PYTHON pytest. It is imported by buildroot's own
+# Python 3.12 (see the pytest step in docker/build_steps.sh, which puts
+# /usr/lib/python3/dist-packages on PYTHONPATH for that command only). This keeps
+# build and test on ONE interpreter without needing pip: buildroot's host Python
+# is built without the ssl module, so it cannot reach PyPI at all.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      bash \
+      ca-certificates \
+      binutils \
+      file \
+      make \
+      ccache \
+      python3-pytest \
+    && rm -rf /var/lib/apt/lists/*
+
+# The buildroot cross toolchain AND target sysroot, at their ORIGINAL absolute
+# paths. Buildroot toolchains are path-locked (the compiler resolves its sysroot
+# by baked-in absolute path), so /output/host must stay exactly /output/host --
+# relocating it silently breaks the link. `staging` is buildroot's own symlink
+# INTO the toolchain tree, so this single COPY carries everything: cross gcc/g++,
+# the target glibc/libstdc++, Python 3.12 headers + sysconfigdata, libcamera,
+# and zbar.
+COPY host/ /output/host/
+RUN ln -sfn /output/host/arm-Buildroot-linux-gnueabihf/sysroot /output/staging
+
+# Readable from inside a running build (and by the ELF gate) so any artifact can
+# be traced back to the OS release its sysroot came from.
+RUN printf 'ss_os_commit=%s\nss_os_describe=%s\nbuildroot_commit=%s\n' \
+      "${SS_OS_COMMIT}" "${SS_OS_DESCRIBE}" "${BUILDROOT_COMMIT}" \
+      > /output/SS_OS_PROVENANCE
+
+ENV PATH="/output/host/bin:${PATH}"
+
+# Pin the ccache directory to the path run_build.sh mounts the cache volume on.
+# REQUIRED, not cosmetic: buildroot ships its OWN ccache at /output/host/bin/ccache,
+# which the PATH above puts ahead of Debian's, and it defaults to buildroot's
+# convention (/root/.buildroot-ccache) instead of /root/.cache/ccache. Without
+# this the build silently caches into an unmounted, container-local dir that
+# `docker run --rm` discards -- every CI run then starts cold (0% hit rate).
+ENV CCACHE_DIR=/root/.cache/ccache
+
+WORKDIR /workspace

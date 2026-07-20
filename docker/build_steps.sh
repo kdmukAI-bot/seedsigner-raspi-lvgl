@@ -1,4 +1,14 @@
 #!/usr/bin/env bash
+# Cross-compile the Pi Zero extensions inside the SeedSigner OS SDK image.
+# ============================================================================
+# Runs on x86 at native speed: the compiler is the SeedSigner OS buildroot cross
+# toolchain and the link target is that same buildroot's sysroot, so the artifact
+# is built BY the device's toolchain AGAINST the device's libraries. No QEMU.
+#
+# The SDK image (docker/Dockerfile.sdk) provides everything at fixed paths:
+#   /output/host      buildroot cross toolchain + host Python 3.12 (setuptools, pytest)
+#   /output/staging   target sysroot (symlink into host/): glibc, libstdc++,
+#                     Python 3.12 headers + sysconfigdata, libcamera, zbar
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -9,149 +19,175 @@ echo "[build] run_ts=${RUN_TS}"
 ABI_JSON="${ABI_JSON:-${ROOT_DIR}/docs/abi/dev-pi-abi.json}"
 LOCK_FILE="${LOCK_FILE:-${ROOT_DIR}/versions.lock.toml}"
 
-PYTHON_BIN="$(command -v python3 || true)"
-if [[ -z "${PYTHON_BIN}" && -x /opt/python/bin/python3 ]]; then
-  PYTHON_BIN="/opt/python/bin/python3"
-fi
-if [[ -z "${PYTHON_BIN}" ]]; then
-  echo "ERROR: python3 not found in container" >&2
-  exit 10
+SDK_HOST="${SDK_HOST:-/output/host}"
+SDK_SYSROOT="${SDK_SYSROOT:-/output/staging}"
+CROSS_TUPLE="${CROSS_TUPLE:-arm-Buildroot-linux-gnueabihf}"
+PYTHON_BIN="${PYTHON_BIN:-${SDK_HOST}/bin/python3}"
+
+[[ -x "${PYTHON_BIN}" ]] || { echo "ERROR: SDK python missing at ${PYTHON_BIN}" >&2; exit 10; }
+[[ -x "${SDK_HOST}/bin/${CROSS_TUPLE}-g++" ]] \
+  || { echo "ERROR: cross toolchain missing at ${SDK_HOST}/bin/${CROSS_TUPLE}-g++" >&2; exit 10; }
+
+# Record WHICH SeedSigner OS release this sysroot came from, in every build log.
+if [[ -f /output/SS_OS_PROVENANCE ]]; then
+  echo "[build] SDK provenance:"
+  sed 's/^/[build]   /' /output/SS_OS_PROVENANCE
 fi
 
-# Lock parsing: stdlib tomllib on py311+, tomli on the py310 base image
-# (installed only if the image doesn't already carry it).
-"${PYTHON_BIN}" -c "import tomllib" 2>/dev/null \
-  || "${PYTHON_BIN}" -c "import tomli" 2>/dev/null \
-  || "${PYTHON_BIN}" -m pip install --disable-pip-version-check -q tomli
+# --- Cross environment --------------------------------------------------------
+# The target sysconfigdata reports DEVICE-absolute paths (LIBDIR=/usr/lib,
+# INCLUDEPY=/usr/include/python3.12). Handing those to distutils yields
+# -L/usr/lib / -I/usr/include, which on this x86 build host are the HOST dirs --
+# the buildroot wrapper rightly rejects them ("unsafe header/library path used in
+# cross-compilation"). So emit a patched copy that prefixes the sysroot onto every
+# value beginning with /usr. This is what crossenv does internally; done inline so
+# the mechanism stays visible and dependency-free.
+#
+# Values with a NON-leading /usr (e.g. MODULE_*_LDFLAGS, already pointing at
+# .../sysroot/usr/lib) begin with -L, not /usr, so they are correctly untouched.
+SYSCONFIG_SRC="$(ls "${SDK_SYSROOT}"/usr/lib/python3.12/_sysconfigdata_*.py | head -n1)"
+SYSCONFIG_NAME="$(basename "${SYSCONFIG_SRC}" .py)"
+XSC_DIR="${XSC_DIR:-/tmp/xsc}"
+mkdir -p "${XSC_DIR}"
+"${PYTHON_BIN}" - "${SYSCONFIG_SRC}" "${SDK_SYSROOT}" "${XSC_DIR}/${SYSCONFIG_NAME}.py" <<'PY'
+import runpy, sys
+src, sysroot, dest = sys.argv[1:4]
+v = runpy.run_path(src)["build_time_vars"]
+patched = {k: (sysroot + val if isinstance(val, str) and val.startswith("/usr") else val)
+           for k, val in v.items()}
+with open(dest, "w") as f:
+    f.write("build_time_vars = %r\n" % (patched,))
+print(f"[build] sysconfigdata patched: LIBDIR {v['LIBDIR']} -> {patched['LIBDIR']}")
+PY
 
+# With this in place the HOST interpreter reports TARGET ABI facts, so the ABI
+# gate below and setuptools' artifact naming both come out target-correct.
+export _PYTHON_SYSCONFIGDATA_NAME="${SYSCONFIG_NAME}"
+export PYTHONPATH="${XSC_DIR}"
+
+# setup.py's cross hooks: resolve Python.h / libs inside the sysroot. No
+# PYTHON_TARGET_LDLIBRARY -- extension modules leave Python symbols undefined at
+# link (the interpreter resolves them at dlopen), so libpython is never linked.
+export CROSS_BUILD=1
+export PYTHON_TARGET_INCLUDE="${SDK_SYSROOT}/usr/include/python3.12"
+export PYTHON_TARGET_LIBDIR="${SDK_SYSROOT}/usr/lib"
+# Native camera engine links libcamera/zbar from this same sysroot.
+export CAMERA_SYSROOT="${CAMERA_SYSROOT:-${SDK_SYSROOT}}"
+
+# --- ABI gate -----------------------------------------------------------------
+# Asserts the ABI the SDK will actually emit matches versions.lock.toml and the
+# device capture. Unchanged from the emulated build: the sysconfigdata swap above
+# makes the running interpreter report the TARGET SOABI/EXT_SUFFIX.
 "${PYTHON_BIN}" - <<'PY' "${ABI_JSON}" "${LOCK_FILE}"
-import json, platform, sysconfig, sys
-try:
-    import tomllib
-except Exception:
-    import tomli as tomllib
+import json, platform, sysconfig, sys, tomllib
 abi_json, lock_file = sys.argv[1:3]
 with open(abi_json, 'r', encoding='utf-8') as f:
     target = json.load(f)
 with open(lock_file, 'rb') as f:
     lock = tomllib.load(f)
 
-machine = platform.machine()
 soabi = sysconfig.get_config_var('SOABI')
 ext_suffix = sysconfig.get_config_var('EXT_SUFFIX')
-include = sysconfig.get_config_var('INCLUDEPY')
 
 lock_soabi = lock.get('target_abi', {}).get('python_soabi')
 lock_ext = lock.get('target_abi', {}).get('python_ext_suffix')
-arch = lock.get('toolchain', {}).get('arch')
-tune = lock.get('toolchain', {}).get('tune')
-fpu = lock.get('toolchain', {}).get('fpu')
-float_abi = lock.get('toolchain', {}).get('float_abi')
+tc = lock.get('toolchain', {})
 
-print('[build] machine=', machine)
-print('[build] soabi=', soabi)
-print('[build] ext_suffix=', ext_suffix)
-print('[build] include=', include)
+print('[build] build host machine (x86 cross host)=', platform.machine())
+print('[build] emitted soabi=', soabi)
+print('[build] emitted ext_suffix=', ext_suffix)
 print('[build] target_soabi(json)=', target.get('soabi'))
-print('[build] target_ext_suffix(json)=', target.get('ext_suffix'))
 print('[build] lock_soabi=', lock_soabi)
-print('[build] lock_ext_suffix=', lock_ext)
 
 if target.get('soabi') != lock_soabi:
     raise SystemExit(f"ABI JSON vs lock mismatch for SOABI: {target.get('soabi')} != {lock_soabi}")
 if target.get('ext_suffix') != lock_ext:
     raise SystemExit(f"ABI JSON vs lock mismatch for EXT_SUFFIX: {target.get('ext_suffix')} != {lock_ext}")
 if soabi != lock_soabi:
-    raise SystemExit(f"SOABI mismatch: got {soabi}, expected {lock_soabi}")
+    raise SystemExit(f"SOABI mismatch: SDK emits {soabi}, lock expects {lock_soabi}")
 if ext_suffix != lock_ext:
-    raise SystemExit(f"EXT_SUFFIX mismatch: got {ext_suffix}, expected {lock_ext}")
+    raise SystemExit(f"EXT_SUFFIX mismatch: SDK emits {ext_suffix}, lock expects {lock_ext}")
 
-if not all([arch, tune, fpu, float_abi]):
+if not all(tc.get(k) for k in ('arch', 'tune', 'fpu', 'float_abi')):
     raise SystemExit('Lock file missing required toolchain fields')
-print('[build] lock toolchain OK')
+print('[build] ABI gate OK')
 PY
 
-# Compiler is now supplied by the locked py310-dev base image toolchain.
-# No runtime apt/compiler workaround in this build path.
-# Use ccache when available to speed up incremental rebuilds. Assign CC/CXX
-# unconditionally: the base image bakes ENV CC=gcc / CXX=g++, so a
-# "${CC:-ccache gcc}" default silently loses to it and the build runs uncached.
-if command -v ccache >/dev/null 2>&1; then
-  export CC="ccache gcc"
-  export CXX="ccache g++"
-  ccache --max-size=2G >/dev/null 2>&1 || true
-  ccache --zero-stats >/dev/null 2>&1 || true
-  echo "[build] ccache enabled"
-else
-  export CC="${CC:-gcc}"
-  export CXX="${CXX:-g++}"
-fi
-echo "[build] compiler CC=${CC} CXX=${CXX}"
-
-# Force Pi Zero-compatible ARMv6 code generation from lock values, and read
-# the runtime-compat symbol ceilings for the artifact gates below.
+# --- Toolchain ----------------------------------------------------------------
+# Codegen flags from the lock (the buildroot toolchain already defaults to this
+# target; passing them keeps versions.lock.toml the single source of truth).
 read -r ARCH TUNE FPU FLOAT_ABI LOCK_MAX_GLIBC LOCK_MAX_GLIBCXX <<< "$("${PYTHON_BIN}" - <<'PY' "${LOCK_FILE}"
-try:
-    import tomllib
-except Exception:
-    import tomli as tomllib
-import sys
+import sys, tomllib
 with open(sys.argv[1], 'rb') as f:
     lock = tomllib.load(f)
-tc = lock['toolchain']
-abi = lock.get('target_abi', {})
+tc = lock['toolchain']; abi = lock.get('target_abi', {})
 print(tc['arch'], tc['tune'], tc['fpu'], tc['float_abi'],
       abi.get('max_glibc', 'GLIBC_2.28'), abi.get('max_glibcxx', 'GLIBCXX_3.4.21'))
 PY
 )"
 
-export CFLAGS="${CFLAGS:-} -march=${ARCH} -mtune=${TUNE} -marm -mfpu=${FPU} -mfloat-abi=${FLOAT_ABI}"
-export CXXFLAGS="${CXXFLAGS:-} -march=${ARCH} -mtune=${TUNE} -marm -mfpu=${FPU} -mfloat-abi=${FLOAT_ABI}"
 export ARMV6_FORCE=1
-# setup.py reads these so the lock stays the single source of the codegen flags.
 export ARMV6_ARCH="${ARCH}" ARMV6_TUNE="${TUNE}" ARMV6_FPU="${FPU}" ARMV6_FLOAT_ABI="${FLOAT_ABI}"
 
-VENV_DIR="/root/.venv-build"
-if [[ ! -f "${VENV_DIR}/bin/activate" ]]; then
-  "${PYTHON_BIN}" -m venv "${VENV_DIR}"
+# ccache wraps the CROSS compiler (not host gcc) so repeat CI runs reuse objects.
+# Assign unconditionally -- a "${CC:-...}" default would silently lose to an
+# inherited CC and run the build uncached.
+if command -v ccache >/dev/null 2>&1; then
+  export CC="ccache ${CROSS_TUPLE}-gcc"
+  export CXX="ccache ${CROSS_TUPLE}-g++"
+  # Pin the cache dir to the mounted volume. The SDK image sets CCACHE_DIR for
+  # this reason (buildroot's own ccache is first on PATH and would otherwise
+  # cache into an unmounted, container-local dir); re-assert it here so the
+  # build is correct even under a hand-rolled `docker run`.
+  export CCACHE_DIR="${CCACHE_DIR:-/root/.cache/ccache}"
+  ccache --max-size=2G >/dev/null 2>&1 || true
+  ccache --zero-stats >/dev/null 2>&1 || true
+  # Log which binary and dir are in play: a cache writing to the wrong place is
+  # invisible except as a permanently 0% hit rate, which is what this catches.
+  echo "[build] ccache enabled: $(command -v ccache) -> cache_dir=$(ccache -p 2>/dev/null | sed -n 's/.*cache_dir = //p' | head -1)"
+else
+  export CC="${CROSS_TUPLE}-gcc"
+  export CXX="${CROSS_TUPLE}-g++"
 fi
-# shellcheck disable=SC1091
-source "${VENV_DIR}/bin/activate"
-python -c "import setuptools, pytest" 2>/dev/null || python -m pip install --disable-pip-version-check -q pip setuptools pytest
+echo "[build] compiler CC=${CC} CXX=${CXX}"
 
+# --- Build --------------------------------------------------------------------
 # The package dir (pyproject: package-dir {"" = "src"}) holds only the built,
-# git-ignored .so, so a fresh checkout has no src/ at all. Create it before the
-# inplace build copies the extension there. Local trees carry src/ from prior
-# builds, which is why a missing src/ only ever surfaced on a clean CI clone.
+# git-ignored .so, so a fresh checkout has no src/ at all.
 mkdir -p "${ROOT_DIR}/src"
 rm -f "${ROOT_DIR}"/src/seedsigner_lvgl_screens*.so "${ROOT_DIR}"/src/uUR*.so
 
-# Force a fresh native extension build so architecture flags are applied deterministically.
-# Build artifacts go to /tmp/build to keep the project tree clean.
-BUILD_DIR="/tmp/build"
+BUILD_DIR="${BUILD_DIR:-/tmp/build}"
 rm -rf "${BUILD_DIR}"
-python "${ROOT_DIR}/setup.py" build_ext --inplace --force --parallel "$(nproc)" \
+"${PYTHON_BIN}" "${ROOT_DIR}/setup.py" build_ext --inplace --force \
+  --parallel "${JOBS:-$(nproc)}" \
   --build-temp "${BUILD_DIR}/temp" --build-lib "${BUILD_DIR}/lib"
 
-# Cache effectiveness is load-bearing for CI wall-clock: surface hit/miss stats
-# in every log so a silently-dead cache (empty dir, defeated CC) is visible.
+# Cache effectiveness is load-bearing for CI wall-clock: surface hit/miss stats in
+# every log so a silently-dead cache (empty dir, defeated CC) is visible.
 if command -v ccache >/dev/null 2>&1; then
   echo "[build] ccache stats after build:"
   ccache --show-stats || true
 fi
 
-# Ensure tests import from local src tree. Runs the whole suite: pyproject's
-# python_files restricts collection to test_*.py (the pi_*_test.py scripts are
-# on-device manual harnesses, not collectable tests).
-PYTHONPATH="${ROOT_DIR}/src" python -m pytest -q -p no:cacheprovider "${ROOT_DIR}/tests"
+# Native cases self-skip: an ARMv6 .so cannot be imported on this x86 host (the
+# guard is `except ImportError`, since a built-but-unloadable extension raises
+# plain ImportError). Functional validation happens on-device.
+#
+# dist-packages carries Debian's pure-Python pytest, imported by the SDK's
+# buildroot Python 3.12 (it has no ssl, so pip/PyPI are unavailable). Added for
+# THIS command only -- leaving it on PYTHONPATH during the build would let
+# Debian's 3.11-targeted setuptools shadow the buildroot interpreter's own.
+PYTHONPATH="${ROOT_DIR}/src:${PYTHONPATH}:/usr/lib/python3/dist-packages" \
+  "${PYTHON_BIN}" -m pytest -q -p no:cacheprovider "${ROOT_DIR}/tests"
 
-# Ceilings from versions.lock.toml (override via MAX_GLIBC{,XX} as needed).
+# --- Artifact gates -----------------------------------------------------------
 MAX_GLIBCXX="${MAX_GLIBCXX:-${LOCK_MAX_GLIBCXX}}"
 MAX_GLIBC="${MAX_GLIBC:-${LOCK_MAX_GLIBC}}"
 
-# Run every runtime-compat gate on one built .so: target EXT_SUFFIX, ARMv6 CPU
-# arch, and the GLIBCXX/GLIBC symbol-version ceilings (a too-new ref only ever
-# fails at dlopen on the device). Applied to BOTH extensions this build emits.
+# Every runtime-compat gate on one built .so: target EXT_SUFFIX, ARMv6 CPU arch,
+# and the GLIBCXX/GLIBC symbol-version ceilings (a too-new ref only ever fails at
+# dlopen on the device). Applied to BOTH extensions this build emits.
 verify_artifact() {
   local ART="$1" label="$2"
   echo "[build] --- verifying ${label}: $(basename "${ART}") ---"

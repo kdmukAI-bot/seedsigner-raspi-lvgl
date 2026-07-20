@@ -13,21 +13,26 @@
 // the entered string in the label field), not just short button labels.
 #define RESULT_LABEL_MAX 256
 
+// Result kinds — mirrors the ESP binding VERBATIM (seedsigner-micropython-builder
+// modseedsigner_bindings.c): ONLY these four exist. Back/power are NOT distinct
+// kinds; they arrive as button_selected carrying the RET_CODE__* sentinel in the
+// index slot (see seedsigner_lvgl_on_button_selected). The MicroPython builder is
+// the design lead for this poll-queue contract, so both platforms return
+// byte-identical (kind, index, label) tuples.
 enum result_kind_t {
     RESULT_BUTTON_SELECTED = 0,
-    RESULT_TOPNAV_BACK = 1,
-    RESULT_TOPNAV_POWER = 2,
-    RESULT_TEXT_ENTERED = 3,
+    RESULT_TEXT_ENTERED = 1,
     // qr_display_screen reports its final brightness (31..255) on exit via the
     // on_qr_brightness hook, carried in the index slot so the host can persist
-    // SETTING__QR_BRIGHTNESS. Emitted just before the trailing topnav_back.
-    RESULT_QR_BRIGHTNESS = 4,
+    // SETTING__QR_BRIGHTNESS. Emitted just before the trailing back event
+    // (button_selected, index 1000).
+    RESULT_QR_BRIGHTNESS = 2,
     // qr_display_screen's density UI reports the chosen module scale
     // (px_per_module, 2..6) via the on_qr_density hook, carried in the index slot
     // — fired on every density change and once on exit. The host remaps
     // (vertical_resolution, px_per_module) -> max_fragment_len and restarts the
     // animated-QR fountain.
-    RESULT_QR_DENSITY = 5,
+    RESULT_QR_DENSITY = 3,
 };
 
 typedef struct {
@@ -62,10 +67,6 @@ static void queue_push(result_kind_t kind, int index, const char *label) {
 
 static const char *kind_to_event_name(result_kind_t kind) {
     switch (kind) {
-        case RESULT_TOPNAV_BACK:
-            return "topnav_back";
-        case RESULT_TOPNAV_POWER:
-            return "topnav_power";
         case RESULT_TEXT_ENTERED:
             return "text_entered";
         case RESULT_QR_BRIGHTNESS:
@@ -79,49 +80,30 @@ static const char *kind_to_event_name(result_kind_t kind) {
 }
 
 extern "C" void seedsigner_lvgl_on_button_selected(uint32_t index, const char *label) {
-    const char *safe_label = label ? label : "";
-
-    // Reserved result codes (SEEDSIGNER_RET_* in seedsigner.h) arrive in the
-    // index slot; `label` is informational only. Check the reserved codes first,
-    // then treat index as a 0-based body-button position — the same order
-    // SeedSigner's Python Views use.
-    switch (index) {
-        case SEEDSIGNER_RET_BACK_BUTTON:
-            queue_push(RESULT_TOPNAV_BACK, -1, safe_label);
-            return;
-        case SEEDSIGNER_RET_POWER_BUTTON:
-            queue_push(RESULT_TOPNAV_POWER, -1, safe_label);
-            return;
-        case SEEDSIGNER_RET_SCREENSAVER_DISMISS:
-            // No dedicated result kind; preserve the prior behavior of surfacing
-            // dismiss as a button_selected with no index (label carries detail).
-            queue_push(RESULT_BUTTON_SELECTED, -1, safe_label);
-            return;
-        case SEEDSIGNER_RET_SPLASH_COMPLETE:
-            // Opening splash finished/dismissed. Host-handled lifecycle event (not a
-            // Python-routed button): surface it like screensaver dismiss — a
-            // button_selected with no index; the "splash_complete" label identifies it.
-            queue_push(RESULT_BUTTON_SELECTED, -1, safe_label);
-            return;
-        default:
-            queue_push(RESULT_BUTTON_SELECTED, static_cast<int>(index), safe_label);
-            return;
-    }
+    // Pure pass-through, identical to the ESP binding: EVERY selection becomes one
+    // button_selected event carrying the raw index. The reserved codes in
+    // seedsigner.h ride in the index slot — SEEDSIGNER_RET_BACK_BUTTON (1000),
+    // _POWER_BUTTON (1001), _SCREENSAVER_DISMISS (1100), _SPLASH_COMPLETE (1101) —
+    // and the host distinguishes them by testing that sentinel index, NOT by a
+    // distinct kind. This mirrors the MicroPython builder (the design lead) so
+    // poll_for_result() returns byte-identical tuples on Pi and ESP32. `label` is
+    // informational only. (queue_push tolerates a NULL label.)
+    queue_push(RESULT_BUTTON_SELECTED, static_cast<int>(index), label);
 }
 
 // Text-entry confirm callback (e.g. seed_add_passphrase_screen). Overrides the
 // weak default in the screens library. The entered text is delivered as the
-// result label; index is -1 (no list position). Long values are truncated to
-// RESULT_LABEL_MAX by queue_push().
+// result label; index is 0 (matches the ESP binding; no list position). Long
+// values are truncated to RESULT_LABEL_MAX by queue_push().
 extern "C" void seedsigner_lvgl_on_text_entered(const char *text) {
-    queue_push(RESULT_TEXT_ENTERED, -1, text ? text : "");
+    queue_push(RESULT_TEXT_ENTERED, 0, text ? text : "");
 }
 
 // QR brightness persistence hook (overrides the weak no-op in the screens
 // library). qr_display_screen fires this on exit with its final brightness
 // (31..255) so the host can persist SETTING__QR_BRIGHTNESS. Surfaced as
 // ("qr_brightness", value, ""); it lands in the queue just before the screen's
-// trailing topnav_back result.
+// trailing back event (button_selected, index 1000).
 extern "C" void seedsigner_lvgl_on_qr_brightness(uint8_t brightness) {
     queue_push(RESULT_QR_BRIGHTNESS, static_cast<int>(brightness), "");
 }
@@ -131,7 +113,8 @@ extern "C" void seedsigner_lvgl_on_qr_brightness(uint8_t brightness) {
 // (px_per_module, 2..6); the host re-resolves max_fragment_len, restarts the
 // fountain via qr_display_set_frame(), and persists SETTING__QR_DENSITY.
 // Surfaced as ("qr_density", value, ""). On exit the screen emits brightness,
-// then density, then topnav_back — this FIFO queue preserves that order.
+// then density, then the back event (button_selected, index 1000) — this FIFO
+// queue preserves that order.
 //
 // Signature verified against the screens repo (seedsigner.h):
 // `void seedsigner_lvgl_on_qr_density(uint8_t px_per_module)`. Live as of the

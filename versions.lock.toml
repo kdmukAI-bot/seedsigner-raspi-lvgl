@@ -4,12 +4,15 @@
 # flags setup.py applies (ARMV6_* env).
 
 [target_abi]
-python_soabi = "cpython-310-arm-linux-gnueabihf"
-python_ext_suffix = ".cpython-310-arm-linux-gnueabihf.so"
-# Ceilings for the runtime-compat gates in build_steps.sh (dev Pi ships
-# glibc 2.28; libstdc++ is linked statically, so GLIBCXX rarely appears).
-max_glibc = "GLIBC_2.28"
-max_glibcxx = "GLIBCXX_3.4.21"
+python_soabi = "cpython-312-arm-linux-gnueabihf"
+python_ext_suffix = ".cpython-312-arm-linux-gnueabihf.so"
+# Ceilings for the runtime-compat gates in build_steps.sh. Target = SeedSigner OS
+# dev image #114: glibc 2.40, Python 3.12.10, libstdc++.so.6.0.32. The default
+# build links the native libcamera engine and therefore SHARED libstdc++, so
+# GLIBCXX now appears as an external dep; the ceilings state what the device
+# runtime provides (libstdc++.so.6.0.32 -> GLIBCXX_3.4.32).
+max_glibc = "GLIBC_2.40"
+max_glibcxx = "GLIBCXX_3.4.32"
 
 [toolchain]
 arch = "armv6zk"
@@ -18,9 +21,9 @@ float_abi = "hard"
 fpu = "vfp"
 
 [python]
-# Interpreter baked into the py310-dev base image (docker/build_base_image.sh
-# PYTHON_VERSION default must match).
-py310 = "3.10.10"
+# Interpreter the SDK image builds with: buildroot's own host Python, which is the
+# same 3.12.10 the device runs. Only major.minor (3.12) drives SOABI.
+py312 = "3.12.10"
 
 [build_tools]
 # ccache is baked into the base image; build_steps.sh falls back to plain

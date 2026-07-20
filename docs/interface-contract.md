@@ -46,20 +46,22 @@ truncated to 255 bytes.
 
 | Kind | Tuple shape | Meaning |
 |------|-------------|---------|
-| `button_selected` | `("button_selected", i, label)` | Body button `i` (0-based) activated. `i == -1` for host-handled sentinels: screensaver dismiss and `("button_selected", -1, "splash_complete")` from the opening splash. |
-| `topnav_back` | `("topnav_back", -1, "back")` | Top-nav back activated. |
-| `topnav_power` | `("topnav_power", -1, "power")` | Top-nav power activated. |
-| `text_entered` | `("text_entered", -1, text)` | Text-entry screen confirmed (passphrase, keyboard, mnemonic word). |
-| `qr_brightness` | `("qr_brightness", value, "")` | qr_display_screen exit: final brightness (31..255) for persisting `SETTING__QR_BRIGHTNESS`; emitted just before the trailing `topnav_back`. |
-| `qr_density` | `("qr_density", px_per_module, "")` | qr_display_screen density UI (`px_per_module`, 2..6). Emitted on **every** density change and once on exit (just before the trailing `topnav_back`). The host re-resolves `(vertical_resolution, px_per_module) → max_fragment_len`, restarts the animated-QR fountain via `qr_display_set_frame()`, and persists `SETTING__QR_DENSITY`. |
+| `button_selected` | `("button_selected", i, label)` | The **only** navigation/selection kind. `i` is the 0-based body-button index, OR a reserved sentinel (`seedsigner.h`): **1000 = back**, **1001 = power**, 1100 = screensaver dismiss, 1101 = splash complete. The host dispatches on `i`, never on `label`. |
+| `text_entered` | `("text_entered", 0, text)` | Text-entry screen confirmed (passphrase, keyboard, mnemonic word); the entered text rides in `label`. |
+| `qr_brightness` | `("qr_brightness", value, "")` | qr_display_screen exit: final brightness (31..255) for persisting `SETTING__QR_BRIGHTNESS`; emitted just before the trailing back event (`button_selected`, `i == 1000`). |
+| `qr_density` | `("qr_density", px_per_module, "")` | qr_display_screen density UI (`px_per_module`, 2..6). Emitted on **every** density change and once on exit (just before the trailing back event). The host re-resolves `(vertical_resolution, px_per_module) → max_fragment_len`, restarts the animated-QR fountain via `qr_display_set_frame()`, and persists `SETTING__QR_DENSITY`. |
 
 The `label` is informational only — never dispatch on it. The C side signals
-outcomes through the index slot using the reserved codes in `seedsigner.h`
+outcomes through the **index slot** using the reserved codes in `seedsigner.h`
 (`SEEDSIGNER_RET_BACK_BUTTON`=1000, `SEEDSIGNER_RET_POWER_BUTTON`=1001 — the
 same values as `RET_CODE__*` in the SeedSigner Python app — plus
 `SEEDSIGNER_RET_SCREENSAVER_DISMISS`=1100 and
-`SEEDSIGNER_RET_SPLASH_COMPLETE`=1101); the bridge maps those to the kinds
-above before Python sees them.
+`SEEDSIGNER_RET_SPLASH_COMPLETE`=1101). These arrive as ordinary
+`button_selected` events carrying the code in the index slot — there is **no**
+distinct `back`/`power` kind. This mirrors the MicroPython/ESP32
+binding (the design lead for the poll-queue contract), so `poll_for_result()`
+returns byte-identical tuples on both platforms; the host tells back/power apart
+by testing the sentinel index **before** its generic body-button branch.
 
 ## Runtime / hardware methods
 
@@ -90,46 +92,50 @@ be called with no argument / `None` (C-side English defaults, RFC 7396
 merge-patch). Full per-screen cfg contracts: the contract comments in
 `native/python_bindings/screens.cpp` and the `methods[]` docstrings.
 
+In the **Results** column, `back`/`power` are the top-nav affordances — both
+surface as `button_selected` with index 1000/1001 (see the Result contract
+above), not as separate kinds.
+
 | Screen | Required cfg keys | Results |
 |--------|-------------------|---------|
-| `button_list_screen` | `top_nav.title`, `button_list` (strictly validated) | button_selected / topnav_back / topnav_power |
+| `button_list_screen` | `top_nav.title`, `button_list` (strictly validated) | button_selected / back / power |
 | `main_menu_screen` | — (optional cfg) | button_selected (0..3) |
-| `large_icon_status_screen` | `status_type` preset or `"custom"` + `icon`/`icon_color` | button_selected / topnav_back |
-| `keyboard_screen` | `keys`, … (see screens.cpp) | text_entered / topnav_back |
-| `seed_add_passphrase_screen` | — (optional cfg) | text_entered / topnav_back |
-| `seed_mnemonic_entry_screen` | `wordlist` | text_entered / topnav_back |
+| `large_icon_status_screen` | `status_type` preset or `"custom"` + `icon`/`icon_color` | button_selected / back |
+| `keyboard_screen` | `keys`, … (see screens.cpp) | text_entered / back |
+| `seed_add_passphrase_screen` | — (optional cfg) | text_entered / back |
+| `seed_mnemonic_entry_screen` | `wordlist` | text_entered / back |
 | `seed_finalize_screen` | `fingerprint` | button_selected |
-| `seed_export_xpub_details_screen` | `fingerprint`, `xpub` | button_selected / topnav_back |
-| `seed_review_passphrase_screen` | `passphrase` | button_selected / topnav_back |
-| `seed_words_screen` | `words` (non-empty) | button_selected / topnav_back |
-| `seed_transcribe_whole_qr_screen` | `qr_data` | button_selected / topnav_back |
-| `seed_transcribe_seedqr_format_screen` | `top_nav.title`, `button_list`, `standard_label`/`standard_text`/`compact_label`/`compact_text` | button_selected / topnav_back |
-| `seed_transcribe_zoomed_qr_screen` | `qr_data` | topnav_back |
-| `qr_display_screen` | `qr_data` | qr_brightness, then topnav_back |
-| `opening_splash_screen` | — (optional cfg) | button_selected(-1, "splash_complete") |
+| `seed_export_xpub_details_screen` | `fingerprint`, `xpub` | button_selected / back |
+| `seed_review_passphrase_screen` | `passphrase` | button_selected / back |
+| `seed_words_screen` | `words` (non-empty) | button_selected / back |
+| `seed_transcribe_whole_qr_screen` | `qr_data` | button_selected / back |
+| `seed_transcribe_seedqr_format_screen` | `top_nav.title`, `button_list`, `standard_label`/`standard_text`/`compact_label`/`compact_text` | button_selected / back |
+| `seed_transcribe_zoomed_qr_screen` | `qr_data` | back |
+| `qr_display_screen` | `qr_data` | qr_brightness, then back |
+| `opening_splash_screen` | — (optional cfg) | button_selected(1101, "splash_complete") |
 | `loading_spinner_screen` | — (optional cfg) | none (torn down by the next screen; host must keep pumping) |
-| `psbt_overview_screen` | — | button_selected / topnav_back |
-| `psbt_address_details_screen` | `address` | button_selected / topnav_back |
-| `psbt_change_details_screen` | `address` | button_selected / topnav_back |
-| `psbt_math_screen` | — | button_selected / topnav_back |
-| `psbt_op_return_screen` | — | button_selected / topnav_back |
-| `multisig_wallet_descriptor_screen` | — | button_selected / topnav_back |
-| `seed_address_verification_screen` | `address`, `type_network` | button_selected / topnav_back |
+| `psbt_overview_screen` | — | button_selected / back |
+| `psbt_address_details_screen` | `address` | button_selected / back |
+| `psbt_change_details_screen` | `address` | button_selected / back |
+| `psbt_math_screen` | — | button_selected / back |
+| `psbt_op_return_screen` | — | button_selected / back |
+| `multisig_wallet_descriptor_screen` | — | button_selected / back |
+| `seed_address_verification_screen` | `address`, `type_network` | button_selected / back |
 | `seed_address_verification_success_screen` | `status_headline`, `address`, `address_type_text`, `index_text`, `button_list`, `top_nav.title` | button_selected (no back) |
-| `seed_sign_message_confirm_address_screen` | `derivation_path`, `address` | button_selected / topnav_back |
-| `seed_sign_message_confirm_message_screen` | — | button_selected / topnav_back |
-| `settings_qr_confirmation_screen` | — | button_selected / topnav_back |
+| `seed_sign_message_confirm_address_screen` | `derivation_path`, `address` | button_selected / back |
+| `seed_sign_message_confirm_message_screen` | — | button_selected / back |
+| `settings_qr_confirmation_screen` | — | button_selected / back |
 | `settings_locale_picker_screen` | rows cfg (`font_dir` optional) | button_selected(row index) |
-| `tools_address_explorer_address_type_screen` | `top_nav.title`, `button_list` (header optional: fingerprint shape or descriptor shape) | button_selected / topnav_back |
-| `tools_address_explorer_address_list_screen` | — | button_selected(row / paginate) / topnav_back |
-| `tools_calc_final_word_screen` | — | button_selected / topnav_back |
-| `tools_calc_final_word_done_screen` | `final_word`, `fingerprint` | button_selected / topnav_back |
+| `tools_address_explorer_address_type_screen` | `top_nav.title`, `button_list` (header optional: fingerprint shape or descriptor shape) | button_selected / back |
+| `tools_address_explorer_address_list_screen` | — | button_selected(row / paginate) / back |
+| `tools_calc_final_word_screen` | — | button_selected / back |
+| `tools_calc_final_word_done_screen` | `final_word`, `fingerprint` | button_selected / back |
 | `reset_screen` | — | none (host tears down) |
-| `power_off_not_required_screen` | — | topnav_back |
-| `power_options_screen` | `top_nav.title`, `button_list` (exactly 2 or 4 label+icon items) | button_selected(index) / topnav_back |
-| `donate_screen` | — | topnav_back |
+| `power_off_not_required_screen` | — | back |
+| `power_options_screen` | `top_nav.title`, `button_list` (exactly 2 or 4 label+icon items) | button_selected(index) / back |
+| `donate_screen` | — | back |
 | `io_test_screen` | — | hardware-key driven (see known gaps) |
-| `camera_preview_screen` | — (optional `instructions_text`) | live scan surface; back-cancel via joystick LEFT / topnav_back |
+| `camera_preview_screen` | — (optional `instructions_text`) | live scan surface; back-cancel via joystick LEFT → button_selected(1000) |
 | `screensaver_screen` | (no cfg arg) | manual-test helper; overlay manager owns the runtime screensaver |
 
 qr_display companions: `qr_display_set_frame(bytes|str)` pushes the next

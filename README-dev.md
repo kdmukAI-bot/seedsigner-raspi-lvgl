@@ -12,10 +12,10 @@ git submodule update --init --recursive   # pulls seedsigner-lvgl-screens + LVGL
 ./run_build.sh
 ```
 
-This produces an ARMv6 CPython extension (`.so`) targeting the Pi Zero. The
-build runs inside a Docker container under QEMU ARM emulation. Expect ~13
-minutes for the first build; subsequent builds with a warm ccache complete
-in ~1 minute.
+This produces the ARMv6 CPython extensions (`seedsigner_lvgl_screens` and `uUR`)
+targeting the Pi Zero. The build cross-compiles **natively on x86** inside the SDK
+container — no QEMU. Expect ~3 minutes cold; subsequent builds with a warm ccache
+complete in seconds.
 
 ## Pi hardware testing
 
@@ -25,23 +25,33 @@ See `docs/pi-hardware-test.md`.
 
 ## Build details
 
-The build uses a pre-built base image containing a pinned Python toolchain and
-ARMv6 compiler, ensuring reproducible builds across local dev machines and CI.
+The build uses a pre-built **cross-compile SDK image** carrying the SeedSigner OS
+buildroot toolchain and the matching target sysroot, so the extension is compiled
+by the device's own compiler against the device's own libraries — ABI skew with
+the flashed image is structurally impossible. The image tag names the OS release
+its sysroot came from. See `docs/knowledge/armv6-cross-compile-sdk.md` for the
+mechanism and its constraints.
+
 **GHCR** (`ghcr.io/kdmukai-bot/...`) is the primary registry — pulled by GitHub
 Actions, GitLab CI, Forgejo CI, and local `run_build.sh` alike; the GitLab and
 Codeberg registries hold secondary mirror copies. The image is built and
-published **locally** (see "Rebuilding and publishing the base image" below).
+published **locally** (see "Rebuilding and publishing the cross-compile SDK image" below).
 
 ### Build caching
 
 Local builds use Docker named volumes to persist caches across runs:
 
-- **ccache** (`seedsigner-raspi-lvgl-ccache`) — compiled object cache, avoids recompiling unchanged translation units under QEMU emulation
-- **venv** (`seedsigner-raspi-lvgl-venv`) — Python virtual environment with build dependencies
+- **ccache** (`seedsigner-raspi-lvgl-ccache`) — compiled object cache, avoids
+  recompiling unchanged translation units. Load-bearing: a cold build is ~3
+  minutes, a fully cached one ~4 seconds. Every build log prints the resolved
+  ccache binary, its `cache_dir`, and the hit rate — a persistent 0% hit rate
+  means the cache is writing somewhere unmounted.
 
-To reset caches:
+No venv volume: the SDK image already carries setuptools and pytest.
+
+To reset the cache:
 ```bash
-docker volume rm seedsigner-raspi-lvgl-ccache seedsigner-raspi-lvgl-venv
+docker volume rm seedsigner-raspi-lvgl-ccache
 ```
 
 CI builds use `actions/cache` for ccache persistence across workflow runs.
@@ -50,21 +60,26 @@ CI builds use `actions/cache` for ccache persistence across workflow runs.
 
 All builds write timestamped logs to `logs/`.
 
-### Rebuilding and publishing the base image
+### Rebuilding and publishing the cross-compile SDK image
 
-The base image (definition: `docker/Dockerfile`) is built and published
-locally rather than by an automated CI job: publishing requires a registry token
-with write access, and keeping that token off CI runners avoids exposing it to a
-compromised build-time dependency that could exfiltrate it. The image changes
-rarely — only on a Python or system-toolchain bump — so a manual local publish is
-a worthwhile trade. Publish to all three registries so every consumer (and
-mirror) stays in sync:
+The SDK image (definition: `docker/Dockerfile.sdk`, producer:
+`docker/build_sdk_image.sh`) carries the SeedSigner OS buildroot cross toolchain
+and the matching target sysroot. It is built and published locally rather than by
+an automated CI job: publishing requires a registry token with write access, and
+keeping that token off CI runners avoids exposing it to a compromised build-time
+dependency that could exfiltrate it. The image changes rarely — only when the
+SeedSigner OS pin moves — so a manual local publish is a worthwhile trade.
+
+The tag names the OS release whose sysroot it carries. **Bumping SeedSigner OS
+means rebuilding the SDK, pushing the new tag, and updating `IMAGE_TAG` in
+`run_build.sh` plus all three CI configs in one commit.** Publish to all three
+registries so every consumer (and mirror) stays in sync:
 
 | Registry | Role |
 |----------|------|
-| `ghcr.io/kdmukai-bot/seedsigner-raspi-lvgl/python-armv6:py310-dev` | primary — pulled by all CI configs and local `run_build.sh` |
-| `registry.gitlab.com/kdmukai-bot/seedsigner-raspi-lvgl/python-armv6:py310-dev` | mirror (fallback via `IMAGE_TAG=` override) |
-| `codeberg.org/kdmukai-bot/seedsigner-raspi-lvgl/python-armv6:py310-dev` | mirror (kept in sync across the bot's forges) |
+| `ghcr.io/kdmukai-bot/seedsigner-raspi-lvgl/sdk-armv6:ss-os-<describe>` | primary — pulled by all CI configs and local `run_build.sh` |
+| `registry.gitlab.com/kdmukai-bot/seedsigner-raspi-lvgl/sdk-armv6:ss-os-<describe>` | mirror (fallback via `IMAGE_TAG=` override) |
+| `codeberg.org/kdmukai-bot/seedsigner-raspi-lvgl/sdk-armv6:ss-os-<describe>` | mirror (kept in sync across the bot's forges) |
 
 **Creating the publish tokens (one-time).** You need one token per registry,
 each scoped to *registry write only* and with a **short expiry** — they're used
@@ -105,17 +120,25 @@ Store them in your password manager, never on disk. Create both as the
 6. Codeberg tokens have no expiry field, so **delete this token right after
    publishing** (same page) to keep it short-lived.
 
-**1. Build locally** (produces `…/python-armv6:py310-dev-local`):
+**1. Build locally.** Requires a SeedSigner OS buildroot output to extract from —
+either a (stopped is fine) build container, or a host tree:
 ```bash
-PYTHON_VERSION=3.10.10 PY_SERIES=py310-dev ./docker/build_base_image.sh
+./docker/build_sdk_image.sh
+# or point it explicitly:
+SS_OS_CONTAINER=seedsigner-os-build-images-1 ./docker/build_sdk_image.sh
+SS_OS_HOST_DIR=/path/to/seedsigner-os/output/host ./docker/build_sdk_image.sh
 ```
+It reads the seedsigner-os checkout (`SS_OS_DIR`, default `../seedsigner-os`) to
+stamp the image with that commit, and prints the resulting tag. It warns if the
+checkout is dirty, since the provenance stamp would then not fully describe the
+sysroot.
 
-**2. Tag for all registries:**
+**2. Tag for all registries** (substitute the tag the producer printed):
 ```bash
-LOCAL=seedsigner-raspi-lvgl/python-armv6:py310-dev-local
-docker tag "$LOCAL" ghcr.io/kdmukai-bot/seedsigner-raspi-lvgl/python-armv6:py310-dev
-docker tag "$LOCAL" registry.gitlab.com/kdmukai-bot/seedsigner-raspi-lvgl/python-armv6:py310-dev
-docker tag "$LOCAL" codeberg.org/kdmukai-bot/seedsigner-raspi-lvgl/python-armv6:py310-dev
+SDK=ghcr.io/kdmukai-bot/seedsigner-raspi-lvgl/sdk-armv6:ss-os-0.8.0-81-gbfbd791
+TAG="${SDK##*:}"
+docker tag "$SDK" "registry.gitlab.com/kdmukai-bot/seedsigner-raspi-lvgl/sdk-armv6:${TAG}"
+docker tag "$SDK" "codeberg.org/kdmukai-bot/seedsigner-raspi-lvgl/sdk-armv6:${TAG}"
 ```
 
 **3. Log in and push — without leaving a token on disk or in shell history.**
@@ -126,26 +149,38 @@ a hidden prompt and use a throwaway Docker config so nothing persists in
 `~/.docker/config.json`:
 ```bash
 export DOCKER_CONFIG="$(mktemp -d)"          # throwaway, not ~/.docker
+TAG=ss-os-0.8.0-81-gbfbd791                   # the tag the producer printed
 
 # --- GHCR ---
 read -rs TOKEN && echo                        # paste GHCR PAT; hidden, not in history
 printf '%s' "$TOKEN" | docker login ghcr.io -u kdmukAI-bot --password-stdin
-docker push ghcr.io/kdmukai-bot/seedsigner-raspi-lvgl/python-armv6:py310-dev
+docker push "ghcr.io/kdmukai-bot/seedsigner-raspi-lvgl/sdk-armv6:${TAG}"
 docker logout ghcr.io
 
 # --- GitLab ---
 read -rs TOKEN && echo                        # paste GitLab token
 printf '%s' "$TOKEN" | docker login registry.gitlab.com -u kdmukAI-bot --password-stdin
-docker push registry.gitlab.com/kdmukai-bot/seedsigner-raspi-lvgl/python-armv6:py310-dev
+docker push "registry.gitlab.com/kdmukai-bot/seedsigner-raspi-lvgl/sdk-armv6:${TAG}"
 docker logout registry.gitlab.com
 
 # --- Codeberg ---
 read -rs TOKEN && echo                        # paste Codeberg token
 printf '%s' "$TOKEN" | docker login codeberg.org -u kdmukAI-bot --password-stdin
-docker push codeberg.org/kdmukai-bot/seedsigner-raspi-lvgl/python-armv6:py310-dev
+docker push "codeberg.org/kdmukai-bot/seedsigner-raspi-lvgl/sdk-armv6:${TAG}"
 docker logout codeberg.org
 
-rm -rf "$DOCKER_CONFIG"; unset DOCKER_CONFIG TOKEN
+rm -rf "$DOCKER_CONFIG"; unset DOCKER_CONFIG TOKEN TAG
+```
+
+**4. Make the GHCR package public (first publish only).** A new GHCR package
+defaults to **private**, and fork PRs / unauthenticated CI runners cannot pull it —
+the build then fails at `docker pull` with an auth error rather than a clear 404.
+As `kdmukAI-bot`: **github.com/users/kdmukAI-bot/packages** → `sdk-armv6` →
+**Package settings** → **Danger Zone → Change visibility → Public**. Verify with a
+logged-out pull:
+```bash
+DOCKER_CONFIG="$(mktemp -d)" docker pull \
+  ghcr.io/kdmukai-bot/seedsigner-raspi-lvgl/sdk-armv6:ss-os-0.8.0-81-gbfbd791
 ```
 
 > **Never** `echo "<token>" | docker login …` — that writes the literal token
@@ -162,7 +197,7 @@ submodule (`third_party/lvgl`). The `--recursive` flag is required.
 
 | Variable | Purpose | Default |
 |----------|---------|---------|
-| `IMAGE_TAG` | GHCR base image for ARMv6 builds | `py310-dev` tag |
+| `IMAGE_TAG` | Cross-compile SDK image | `sdk-armv6:ss-os-<describe>` tag |
 | `LVGL_PERF_MONITOR` | Enable LVGL FPS/CPU overlay | `0` |
 | `SEEDSIGNER_LVGL_SCREENS_DIR` | Path to lvgl-screens source | `sources/seedsigner-lvgl-screens` |
 | `LVGL_ROOT` | Path to LVGL source | `sources/seedsigner-lvgl-screens/third_party/lvgl` |
@@ -178,7 +213,8 @@ Enable LVGL performance monitor overlay (displays FPS/CPU on screen):
 LVGL_PERF_MONITOR=1 ./run_build.sh
 ```
 
-Use a locally-built base image instead of the GHCR image:
+Use a locally-built SDK image instead of the GHCR one (e.g. after re-running
+`./docker/build_sdk_image.sh` against a newer SeedSigner OS output):
 ```bash
-IMAGE_TAG=seedsigner-raspi-lvgl/python-armv6:py310-dev-local ./run_build.sh
+IMAGE_TAG=ghcr.io/kdmukai-bot/seedsigner-raspi-lvgl/sdk-armv6:ss-os-<describe> ./run_build.sh
 ```

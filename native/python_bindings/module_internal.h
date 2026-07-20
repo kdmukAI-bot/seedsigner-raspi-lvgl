@@ -138,12 +138,49 @@ void mark_last_path_compiled();
 // camera_preview.cpp — live camera-preview scan surface (pixel sink + overlay)
 PyObject *py_camera_preview_screen(PyObject *self, PyObject *args);
 PyObject *py_camera_preview_set_frame(PyObject *self, PyObject *args);
+PyObject *py_camera_preview_set_frame_yuv420(PyObject *self, PyObject *args);
 PyObject *py_camera_preview_set_progress(PyObject *self, PyObject *args);
 PyObject *py_camera_preview_set_scanning(PyObject *self, PyObject *args);
 PyObject *py_camera_preview_close(PyObject *self, PyObject *args);
+// Build the preview screen + overlay (shared by py_camera_preview_screen and the
+// native camera_scanner.start()). Throws std::runtime_error on failure.
+void camera_preview_build_session(const std::string &instructions);
+// End the live session: drop the overlay + sink and reset the idle clock. Shared by
+// py_camera_preview_close and camera_scanner.stop(). Idempotent.
+void camera_preview_close_session();
+// Toggle the overlay's scanning state (shared by the binding + camera_scanner.start()).
+void camera_preview_set_scanning_active(bool active);
+// Drive the overlay bar/dot from camera_scanner.report() — arg order (frame_status,
+// percent) per the ESP contract (reverse of set_progress).
+void camera_preview_report(int frame_status, int percent);
 // Tear the live session down before lv_deinit() so its statics can't dangle into
 // the next lvgl_init(); called from lvgl_runtime_shutdown().
 void camera_preview_on_lvgl_shutdown();
+
+// camera_scanner.cpp — nested Python module implementing the ESP camera_scanner
+// poll contract (Phase 1: start/stop/is_running). Attaches the submodule object to
+// the parent extension at PyInit time; returns 0 on success, -1 with a Python error
+// set. Only present under the SS_CAMERA_ENGINE build.
+int camera_scanner_attach(PyObject *parent);
+
+// camera_preview.cpp — image-entropy session (reuses the scan sink; builds the portable
+// camera_entropy_overlay instead of the scan overlay). Shared by the camera_entropy
+// binding. build_session throws std::runtime_error on failure.
+void camera_entropy_build_session(const std::string &preview_instructions,
+                                  const std::string &confirm_instructions,
+                                  const std::string &capturing_text,
+                                  const std::string &accept_label);
+// Flip the entropy overlay phase (0 PREVIEW / 1 CAPTURING / 2 CONFIRM). No-op if none active.
+void camera_entropy_set_phase(int phase);
+// Build the CONFIRM review image (crop-to-fill + color-preserving contrast stretch via the
+// portable image_entropy_process) from the latched RAW sink-square frame and hand it to the
+// overlay. DISPLAY-ONLY — never fed into the entropy chain.
+void camera_entropy_build_confirm_image(const uint8_t *raw_rgb565, int square_w, int square_h);
+
+// camera_entropy.cpp — nested Python module implementing the ESP camera_entropy contract
+// (start/stop/set_labels/is_running/frames_chained/capture/get_result/resume). Attaches the
+// submodule at PyInit time; returns 0 on success, -1 with a Python error set. CAMERA_ENGINE only.
+int camera_entropy_attach(PyObject *parent);
 
 // toast.cpp — native LVGL toast overlay (transient bottom banner over the live screen)
 PyObject *py_show_toast(PyObject *self, PyObject *args);
@@ -173,6 +210,7 @@ PyObject *py_psbt_math_screen(PyObject *self, PyObject *args);
 PyObject *py_psbt_op_return_screen(PyObject *self, PyObject *args);
 PyObject *py_multisig_wallet_descriptor_screen(PyObject *self, PyObject *args);
 PyObject *py_seed_address_verification_screen(PyObject *self, PyObject *args);
+PyObject *py_seed_address_verification_set_progress(PyObject *self, PyObject *args);
 PyObject *py_seed_address_verification_success_screen(PyObject *self, PyObject *args);
 PyObject *py_seed_sign_message_confirm_address_screen(PyObject *self, PyObject *args);
 PyObject *py_seed_sign_message_confirm_message_screen(PyObject *self, PyObject *args);

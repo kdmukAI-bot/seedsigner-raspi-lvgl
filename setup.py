@@ -120,13 +120,38 @@ python_target_include = os.environ.get("PYTHON_TARGET_INCLUDE", "").strip()
 python_target_libdir = os.environ.get("PYTHON_TARGET_LIBDIR", "").strip()
 python_target_ldlibrary = os.environ.get("PYTHON_TARGET_LDLIBRARY", "").strip()
 
+# --- Native camera engine (default) -----------------------------------------
+# The native libcamera C++ capture engine (native/camera/) is the DEFAULT build:
+# SeedSigner OS #114 is the target, and the native camera pipeline (scan +
+# image-entropy) is the main approach. It links the engine into the
+# seedsigner_lvgl_screens extension, which shares libcamera's C++ objects across
+# the library boundary, so the whole extension MUST link SHARED libstdc++ (a
+# static copy would split the ABI) — the #114 device provides libstdc++.so.6.0.32.
+# libcamera + its headers come from the target sysroot the build supplies via
+# CAMERA_SYSROOT -- the SeedSigner OS SDK image points it at /output/staging (see
+# docker/build_steps.sh and docs/knowledge/armv6-cross-compile-sdk.md).
+# CAMERA_ENGINE=0 opts out for a no-camera diagnostic build (static libstdc++, no
+# libcamera, no camera_scanner/camera_entropy submodules).
+camera_engine = os.environ.get("CAMERA_ENGINE", "1") == "1"
+CAMERA_SYSROOT = Path(
+    os.environ.get("CAMERA_SYSROOT", str(ROOT / "sysroot" / "pi0-dev"))
+).resolve()
+
 include_dirs = [
     str(LVGL_ROOT),
     str(SEEDSIGNER_DIR),
     str(NLOHMANN_JSON_INCLUDE_DIR),
+    # camera_preview.cpp always includes camera_preview_sink.h (Python-free bridge);
+    # the header is harmless in the default build (its impls are just never called).
+    str(ROOT / "native" / "camera"),
 ]
 
 extra_link_args: list[str] = []
+# uUR is a SEPARATE pure-C extension — it must NEVER inherit the C++ extension's
+# camera link args (-lcamera/-lzbar/...), which would give uUR.so a libcamera
+# DT_NEEDED and make `import uUR` fail anywhere off the device. It carries only its
+# own portability + cross-build link args.
+uur_link_args: list[str] = []
 extra_compile_args: list[str] = ["-std=c++17"]
 if armv6_force:
     # Codegen flags come from versions.lock.toml via docker/build_steps.sh
@@ -139,20 +164,50 @@ if armv6_force:
         f"-mfpu={os.environ.get('ARMV6_FPU', 'vfp')}",
         f"-mfloat-abi={os.environ.get('ARMV6_FLOAT_ABI', 'hard')}",
     ])
+    # uUR is pure C (no libstdc++); static libgcc keeps it self-contained on the
+    # device regardless of the main extension's camera/no-camera linkage.
+    uur_link_args.append("-static-libgcc")
     # Avoid runtime dependency on host libstdc++/libgcc symbol versions.
     # This is critical for Pi Zero targets that often have older system toolchains.
+    # EXCEPTION: the default (camera) build must link libstdc++ SHARED (see above),
+    # so the static flip is skipped there — the device provides libstdc++.so.6.0.32.
+    if not camera_engine:
+        extra_link_args.extend([
+            "-static-libstdc++",
+            "-static-libgcc",
+        ])
+
+# libcamera link recipe (validated end-to-end by scripts/build-camera-probe.sh):
+# sysroot include + libs, --allow-shlib-undefined because the sysroot libs reference
+# GLIBC/GLIBCXX version nodes the build container's runtime lacks but the device has.
+camera_sources: list[str] = []
+if camera_engine:
+    cam_lib = str(CAMERA_SYSROOT / "usr" / "lib")
+    # libcamera headers live under usr/include/libcamera (code uses <libcamera/...>);
+    # zbar.h is directly under usr/include.
+    include_dirs.append(str(CAMERA_SYSROOT / "usr" / "include" / "libcamera"))
+    include_dirs.append(str(CAMERA_SYSROOT / "usr" / "include"))
+    # Top-level native/camera/*.cpp only (engine + scan_coordinator); the probe/
+    # subdir is a standalone tool, not part of the extension.
+    camera_sources = sorted(glob.glob(str(ROOT / "native" / "camera" / "*.cpp")))
     extra_link_args.extend([
-        "-static-libstdc++",
-        "-static-libgcc",
+        f"-L{cam_lib}",
+        "-lcamera",
+        "-lcamera-base",
+        "-lzbar",
+        "-Wl,--allow-shlib-undefined",
+        f"-Wl,-rpath-link,{cam_lib}",
     ])
 if cross_build and python_target_include:
     include_dirs.insert(0, python_target_include)
 if cross_build and python_target_libdir:
-    extra_link_args.extend([f"-L{python_target_libdir}"])
+    extra_link_args.append(f"-L{python_target_libdir}")
+    uur_link_args.append(f"-L{python_target_libdir}")
 if cross_build and python_target_ldlibrary:
     if python_target_ldlibrary.startswith("lib") and python_target_ldlibrary.endswith((".a", ".so")):
         libname = python_target_ldlibrary[3:].split(".")[0]
-        extra_link_args.extend([f"-l{libname}"])
+        extra_link_args.append(f"-l{libname}")
+        uur_link_args.append(f"-l{libname}")
 
 # Portable seedsigner component sources. The screens repo replaced its monolithic
 # seedsigner.cpp with one file per screen under screens/ plus shared helpers
@@ -171,7 +226,15 @@ seedsigner_sources = sorted(
 
 # Pi platform backend + Python bindings, one subsystem per file (module.cpp is
 # the method table; see native/python_bindings/module_internal.h for the map).
-binding_sources = sorted(glob.glob(str(ROOT / "native" / "python_bindings" / "*.cpp")))
+# camera_scanner.cpp / camera_entropy.cpp reference the libcamera engines
+# unconditionally, so they are only compiled in the CAMERA_ENGINE build (their engine
+# sources are in camera_sources); exclude them from the default glob so the default
+# extension has no undefined engine symbols.
+_engine_only_bindings = {"camera_scanner.cpp", "camera_entropy.cpp"}
+binding_sources = sorted(
+    s for s in glob.glob(str(ROOT / "native" / "python_bindings" / "*.cpp"))
+    if camera_engine or os.path.basename(s) not in _engine_only_bindings
+)
 
 # --- Native cUR (BC-UR) -> the `uUR` extension ------------------------------
 # Compiled from the sources/cUR submodule into a SEPARATE CPython module named
@@ -202,6 +265,8 @@ ext_modules = [
         "seedsigner_lvgl_screens",
         sources=[
             *binding_sources,
+            # Native libcamera capture engine (empty unless CAMERA_ENGINE=1).
+            *camera_sources,
             # Every portable seedsigner component + per-screen source (see the
             # seedsigner_sources glob above).
             *seedsigner_sources,
@@ -241,6 +306,8 @@ ext_modules = [
                 if os.environ.get("LVGL_PERF_MONITOR", "0") == "1"
                 else []
             ),
+            # Gate the pump-path consume hook + the camera_scanner submodule attach.
+            *([("SS_CAMERA_ENGINE", "1")] if camera_engine else []),
         ],
         extra_compile_args=extra_compile_args,
         extra_link_args=extra_link_args,
@@ -248,13 +315,14 @@ ext_modules = [
     ),
     # Native cUR -> the `uUR` module. Pure C: strip the C++-only std flag (the
     # custom build_ext also drops it per-.c, but keep this extension's own args
-    # clean). Reuses the ARMv6 codegen + cross-build link args.
+    # clean). Uses uur_link_args (ARMv6 static-libgcc + cross-build) — NOT the main
+    # extension's camera link args, so uUR.so has no libcamera DT_NEEDED.
     Extension(
         "uUR",
         sources=cur_sources,
         include_dirs=[str(CUR_DIR), str(CUR_DIR / "src")],
         extra_compile_args=[a for a in extra_compile_args if a not in CXX_ONLY_FLAGS],
-        extra_link_args=extra_link_args,
+        extra_link_args=uur_link_args,
         language="c",
     ),
 ]

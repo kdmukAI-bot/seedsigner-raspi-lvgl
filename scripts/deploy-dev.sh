@@ -1,14 +1,35 @@
 #!/usr/bin/env bash
 # Local-dev deploy to a RUNNING SeedSigner Pi (rsync over SSH).
 # ============================================================================
-# Pushes the app's deployable payload: the cross-compiled .so, the app code, and
-# the app's already-bundled language packs ($SS_APP_DIR/src/lang-packs).
+# Targets the SeedSigner OS *dev* image (>= build #114: libcamera, cpython-312,
+# glibc 2.40). That image differs from the old Buster layout this script used to
+# assume:
+#   - it is ROOT-ONLY (there is no `pi` user) -> SS_DEVICE is root@...
+#   - the app runs from a checkout on the writable data partition,
+#     /mnt/data/seedsigner/src, which the image's /start.sh prefers over the
+#     baked /opt/src app (see /etc/init.d/S02seedsigner -> /start.sh).
+#   - the app is launched/stopped via the `seedsigner` init helper
+#     (`seedsigner {start|stop|restart|status}` = /etc/init.d/S02seedsigner).
+#
+# Because the app is `exec python3 main.py` with CWD = /mnt/data/seedsigner/src,
+# that dir is sys.path[0]. So the native .so is deployed straight INTO it — a
+# bare `import seedsigner_lvgl_screens` then resolves with no PYTHONPATH/.pth.
+#
+# Pushes the app's deployable payload: the app code (incl. main.py, so a bare
+# #114 image is provisioned on the first run), the cross-compiled .so(s), and the
+# app's already-bundled language packs ($SS_APP_DIR/src/lang-packs).
 #
 # It points ONLY at the app. It does NOT know the pack repo, does NOT build packs,
 # and does NOT branch on signed-vs-dev — whatever the app bundled is what deploys.
 # An absent/empty src/lang-packs is a valid English-only deploy, not an error.
 # (Populating the app's src/lang-packs is the pack-repo/app dev flow's job:
 #  `build_packs.sh --out-dir $SS_APP_DIR/src/lang-packs` from the live pack checkout.)
+#
+# Boot behavior (image, not this script): S02seedsigner starts the app at boot
+# via start-stop-daemon with NO respawn flag, and inittab only respawns login
+# shells -- so the app auto-runs at startup but a killed/crashed app stays down
+# until a manual `seedsigner start` or reboot. This script stops the app before
+# syncing (frees GPIO/SPI + the in-use .so) and explicitly restarts it at the end.
 #
 # DEV-ONLY. This is the "rsync onto a live Pi" loop for the maintainer's dev box.
 # It is NOT how SeedSigner ships: SeedSigner OS bakes its own buildroot image.
@@ -25,7 +46,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 if [ -f "$REPO_ROOT/.env" ]; then set -a; . "$REPO_ROOT/.env"; set +a; fi
 
 # --- Config (env-driven) -----------------------------------------------------
-: "${SS_DEVICE:?set SS_DEVICE (e.g. pi@seedsigner.local) — see .env.example}"
+: "${SS_DEVICE:?set SS_DEVICE (e.g. root@seedsigner.local) — see .env.example}"
 : "${SS_APP_DIR:?set SS_APP_DIR — the seedsigner app checkout root — see .env.example}"
 # The .so built by this repo (default: newest in src/). The `|| true` keeps a
 # missing .so from killing the script here via pipefail+set -e — the preflight
@@ -35,9 +56,13 @@ SS_SO_PATH="${SS_SO_PATH:-$(ls -1t "$REPO_ROOT"/src/seedsigner_lvgl_screens*.so 
 # absent uUR.so is a valid deploy — the app's helpers/ur2/decoder.py falls back
 # to the pure-Python decoder when `import uUR` fails.
 SS_UUR_SO_PATH="${SS_UUR_SO_PATH:-$(ls -1t "$REPO_ROOT"/src/uUR*.so 2>/dev/null | head -n1 || true)}"
-# Device-side layout (standard SeedSigner Pi paths; override only for an odd device).
-SS_DEVICE_APP_DIR="${SS_DEVICE_APP_DIR:-/home/pi/seedsigner/src}"
-SS_DEVICE_SO_DIR="${SS_DEVICE_SO_DIR:-/home/pi/seedsigner-raspi-lvgl/src}"
+# Device-side layout (#114 dev image; override only for an odd device).
+# The app dir is /start.sh's DEV_SRC and the CWD at launch, so the .so co-locates
+# there by default (sys.path[0] import — no PYTHONPATH needed).
+SS_DEVICE_APP_DIR="${SS_DEVICE_APP_DIR:-/mnt/data/seedsigner/src}"
+SS_DEVICE_SO_DIR="${SS_DEVICE_SO_DIR:-$SS_DEVICE_APP_DIR}"
+# The `seedsigner` init helper on the dev image (stop/start around the sync).
+SS_CTL="${SS_CTL:-seedsigner}"
 
 # --- Preflight ---------------------------------------------------------------
 [ -n "$SS_SO_PATH" ] && [ -f "$SS_SO_PATH" ] \
@@ -47,7 +72,22 @@ SS_DEVICE_SO_DIR="${SS_DEVICE_SO_DIR:-/home/pi/seedsigner-raspi-lvgl/src}"
 
 RSYNC=(rsync -az --exclude='__pycache__' --exclude='*.pyc' --exclude='.DS_Store')
 
-echo "==> [1/3] .so   -> $SS_DEVICE:$SS_DEVICE_SO_DIR/"
+# --- Stop the app so the sync can replace the in-use .so and free GPIO/SPI ----
+echo "==> [0/4] stop app  ($SS_DEVICE: $SS_CTL stop)"
+ssh "$SS_DEVICE" "$SS_CTL stop" || true
+
+# --- [1/4] app code (whole src/ -> provisions main.py on a bare image) -------
+# Excludes: settings.json (preserve device-side state), VCS/build cruft, and
+# lang-packs (handled explicitly in [3/4] to also clear a stale symlink).
+echo "==> [1/4] app   -> $SS_DEVICE:$SS_DEVICE_APP_DIR/"
+ssh "$SS_DEVICE" "mkdir -p '$SS_DEVICE_APP_DIR'"
+"${RSYNC[@]}" --exclude='settings.json' --exclude='.git' --exclude='*.egg-info' \
+  --exclude='lang-packs' \
+  "$SS_APP_DIR/src/" "$SS_DEVICE:$SS_DEVICE_APP_DIR/"
+
+# --- [2/4] native .so(s) co-located into the app dir (CWD import) ------------
+echo "==> [2/4] .so   -> $SS_DEVICE:$SS_DEVICE_SO_DIR/  ($(basename "$SS_SO_PATH"))"
+ssh "$SS_DEVICE" "mkdir -p '$SS_DEVICE_SO_DIR'"
 "${RSYNC[@]}" "$SS_SO_PATH" "$SS_DEVICE:$SS_DEVICE_SO_DIR/"
 if [ -n "$SS_UUR_SO_PATH" ] && [ -f "$SS_UUR_SO_PATH" ]; then
   echo "    + uUR -> $(basename "$SS_UUR_SO_PATH")"
@@ -56,25 +96,24 @@ else
   echo "    (no uUR .so found — app uses the pure-Python ur2 decoder fallback)"
 fi
 
-echo "==> [2/3] app   -> $SS_DEVICE:$SS_DEVICE_APP_DIR/seedsigner/"
-"${RSYNC[@]}" --exclude='settings.json' --exclude='.git' \
-  "$SS_APP_DIR/src/seedsigner/" "$SS_DEVICE:$SS_DEVICE_APP_DIR/seedsigner/"
-
-# --- [3/3] language packs: copy the app's payload straight into its CWD pack root
-# The app reads packs at CWD-relative "lang-packs" (= $SS_DEVICE_APP_DIR/lang-packs).
+# --- [3/4] language packs: the app reads packs at CWD-relative "lang-packs" ---
 PACKS="$SS_APP_DIR/src/lang-packs"
 if [ -d "$PACKS" ] && [ -n "$(ls -A "$PACKS" 2>/dev/null)" ]; then
-  echo "==> [3/3] language packs <- $PACKS"
+  echo "==> [3/4] language packs <- $PACKS"
   # Deploy STRAIGHT there — no symlink. If an old deploy left a symlink, remove it
   # first (rsync would otherwise write THROUGH it into the old location).
   ssh "$SS_DEVICE" "[ -L '$SS_DEVICE_APP_DIR/lang-packs' ] && rm -f '$SS_DEVICE_APP_DIR/lang-packs' || true"
   "${RSYNC[@]}" "$PACKS"/ "$SS_DEVICE:$SS_DEVICE_APP_DIR/lang-packs/"
 else
-  echo "==> [3/3] no packs at $PACKS — English-only deploy (nothing to copy)"
+  echo "==> [3/4] no packs at $PACKS — English-only deploy (nothing to copy)"
 fi
 
+# --- [4/4] start the freshly-deployed app ------------------------------------
+echo "==> [4/4] start app ($SS_DEVICE: $SS_CTL start)"
+ssh "$SS_DEVICE" "$SS_CTL start"
+
 echo ""
-echo "==> Deployed. Restart SeedSigner on the device to pick up the changes:"
-# The ^ anchor keeps pkill from matching the ssh wrapper's own command line
-# (an unanchored pattern kills the ssh session itself).
-echo "    ssh $SS_DEVICE 'pkill -f \"^python3 -u main.py\"; cd $SS_DEVICE_APP_DIR && setsid nohup python3 -u main.py </dev/null >/tmp/ss_run.log 2>&1 &'"
+echo "==> Deployed and started. Handy on-device commands:"
+echo "    ssh $SS_DEVICE '$SS_CTL status'   # running? (pid)"
+echo "    ssh $SS_DEVICE '$SS_CTL restart'  # after a manual edit"
+echo "    ssh $SS_DEVICE '$SS_CTL stop'     # stays down (no respawn) until start/reboot"

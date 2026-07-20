@@ -89,7 +89,9 @@ def main() -> int:
             lv.set_locale("en", LANG_PACKS)
             ev = show_list("Language", [row[1] for row in LOCALES],
                            show_back=False, show_power=True)
-            if ev[0] == "topnav_power":
+            # Power is a button_selected sentinel (index 1001), not a distinct kind —
+            # matches the ESP binding. Test it BEFORE indexing LOCALES with ev[1].
+            if ev[0] == "button_selected" and ev[1] == 1001:  # RET_CODE__POWER_BUTTON
                 break
             if ev[0] != "button_selected":
                 continue
@@ -101,7 +103,7 @@ def main() -> int:
             # Demo screen in the chosen locale; loop until BACK returns to the menu.
             while True:
                 ev2 = show_list(title, buttons, show_back=True, show_power=False)
-                if ev2[0] == "topnav_back":
+                if ev2[0] == "button_selected" and ev2[1] == 1000:  # RET_CODE__BACK_BUTTON
                     break
                 print(f"[i18n-test]    selected: {ev2}")
     except KeyboardInterrupt:

@@ -12,6 +12,10 @@ __pycache__/
 .pytest_cache/
 build/
 logs/
+# Local device-target sysroot, if one is staged here for an off-SDK build
+# (CAMERA_SYSROOT). The SDK image normally supplies the sysroot, so this is
+# usually absent. Build input, never committed.
+sysroot/
 *.so
 *.egg-info/
 *.core

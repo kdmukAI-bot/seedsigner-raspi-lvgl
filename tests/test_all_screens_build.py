@@ -24,8 +24,12 @@ import pytest
 def native():
     try:
         mod = importlib.import_module("seedsigner_lvgl_screens")
-    except ModuleNotFoundError:
-        pytest.skip("seedsigner_lvgl_screens not built/installed in this test environment")
+    except ImportError:
+        # ImportError (not just ModuleNotFoundError): the default build links
+        # libcamera + shared libstdc++, which can't dlopen in the glibc-2.31 build
+        # container (device binaries need glibc 2.40) — so the module is built but
+        # not importable here. Screen builds are validated on-device.
+        pytest.skip("seedsigner_lvgl_screens not importable in this environment")
     mod.lvgl_init(hor_res=240, ver_res=240)
     yield mod
     mod.lvgl_shutdown()
