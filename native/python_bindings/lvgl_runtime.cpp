@@ -9,6 +9,7 @@
 #include "overlay_manager.h"  // native screensaver idle-watch dispatcher
 
 #ifdef SS_CAMERA_ENGINE
+#include "camera_config.h"    // sticky rotation shared by both camera engines
 #include "camera_engine.h"    // camera_engine_pump_consume (Phase-1 native capture)
 #include "camera_entropy_engine.h"  // camera_entropy_engine_pump_consume (image-entropy)
 #endif
@@ -442,5 +443,43 @@ PyObject *py_set_screensaver_timeout(PyObject *self, PyObject *args) {
         return NULL;
     }
     overlay_manager_set_screensaver_timeout(static_cast<uint32_t>(ms));
+    Py_RETURN_NONE;
+}
+
+// set_camera_rotation(degrees) -> None
+//
+// Sticky device setting applied to BOTH camera flows (scan and entropy). Takes the
+// app's raw SETTING__CAMERA_ROTATION value (0/90/180/270) UNMODIFIED — this layer
+// composes it with the sensor's mount base (camera_config.h), so the app must not
+// pre-add that base.
+//
+// Modelling rotation as a sticky setter rather than a start() argument is what keeps
+// camera_scanner.start() / camera_entropy.start() argument-identical to the ESP
+// bindings, so one Python call shape drives both platforms. Each engine samples the
+// value at start(), so a change takes effect on the next camera session, not mid-
+// stream. The runtime calls this at init and again whenever the setting changes.
+//
+// Pi-only: the MicroPython build deliberately does not implement it (the app reports
+// the setting as unsupported on that hardware), so there is no ESP counterpart.
+PyObject *py_set_camera_rotation(PyObject *self, PyObject *args) {
+    (void)self;
+    int degrees = 0;
+    if (!PyArg_ParseTuple(args, "i", &degrees)) {
+        return NULL;
+    }
+    // The frame-convert path implements quarter turns only; anything else would
+    // silently fall through its switch and render unrotated.
+    if (degrees % 90 != 0) {
+        PyErr_Format(PyExc_ValueError,
+                     "camera rotation must be a multiple of 90 (got %d)", degrees);
+        return NULL;
+    }
+#ifdef SS_CAMERA_ENGINE
+    camera_config_set_rotation(degrees);
+#else
+    // No-camera diagnostic build: keep the API surface stable for the app, but there
+    // is no engine to configure.
+    (void)degrees;
+#endif
     Py_RETURN_NONE;
 }

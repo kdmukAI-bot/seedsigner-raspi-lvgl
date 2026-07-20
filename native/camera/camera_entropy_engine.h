@@ -22,11 +22,13 @@
 #include <cstdint>
 
 // Bring up the entropy preview session and begin capture + chaining. The entropy preview
-// screen + sink must already exist (the camera_entropy binding builds them first). rotate
-// is 0/90/180/270; target_fps caps the sensor frame duration. Returns CAMERA_OK (0)
+// screen + sink must already exist (the camera_entropy binding builds them first).
+// Takes no rotation/fps argument: rotation is the sticky camera_config device setting
+// (composed with the sensor-mount base) and the frame cap is CAMERA_TARGET_FPS, which
+// keeps this argument-identical to the ESP camera_entropy.start(). Returns CAMERA_OK (0)
 // on success, or a camera_error.h code (CAMERA_ERR_*) on failure — the binding raises
 // OSError(code, camera_error_str(code)) (same codes as the ESP contract).
-int camera_entropy_engine_start(int rotate, int target_fps);
+int camera_entropy_engine_start();
 
 // Stop capture, join the blit worker, release the camera + CameraManager, wipe the
 // coordinator. Idempotent.

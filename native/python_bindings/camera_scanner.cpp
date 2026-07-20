@@ -44,7 +44,7 @@ static PyObject *raise_camera_oserror(int code) {
     return NULL;
 }
 
-// start(focus_assist=False, instructions_text=None, rotate=90, target_fps=15) -> None
+// start(focus_assist=False, instructions_text=None) -> None
 // Owns the preview screen on the Pi like the ESP camera_scanner owns its overlay:
 // builds the camera_preview screen (unless the caller already built one), flips it to
 // the scanning status-bar state, then brings up the native capture engine. Raises
@@ -55,13 +55,11 @@ static PyObject *raise_camera_oserror(int code) {
 // no-arg form is the normal scan session, callable identically on both platforms.
 static PyObject *mp_camera_scanner_start(PyObject *self, PyObject *args, PyObject *kwargs) {
     (void)self;
-    static const char *kwlist[] = {"focus_assist", "instructions_text", "rotate", "target_fps", NULL};
+    static const char *kwlist[] = {"focus_assist", "instructions_text", NULL};
     int focus_assist = 0;
     const char *instructions = NULL;
-    int rotate = 90;
-    int target_fps = 15;
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|pzii", const_cast<char **>(kwlist),
-                                     &focus_assist, &instructions, &rotate, &target_fps)) {
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|pz", const_cast<char **>(kwlist),
+                                     &focus_assist, &instructions)) {
         return NULL;
     }
     (void)focus_assist;  // reserved
@@ -90,7 +88,7 @@ static PyObject *mp_camera_scanner_start(PyObject *self, PyObject *args, PyObjec
     // Flip the overlay to the scanning status-bar state (subsumes set_scanning(True)).
     camera_preview_set_scanning_active(true);
 
-    int err = camera_engine_start(rotate, target_fps);
+    int err = camera_engine_start();
     if (err != CAMERA_OK) {
         // Roll back the screen we may have just built so a retry starts clean.
         camera_preview_close_session();
@@ -209,7 +207,7 @@ static PyObject *mp_camera_scanner_report_complete(PyObject *self, PyObject *arg
 
 static PyMethodDef camera_scanner_methods[] = {
     {"start", (PyCFunction)mp_camera_scanner_start, METH_VARARGS | METH_KEYWORDS,
-     "start(focus_assist=False, instructions_text=None, rotate=90, target_fps=15): bring up the "
+     "start(focus_assist=False, instructions_text=None): bring up the "
      "native camera preview + capture engine. Raises OSError on bring-up failure."},
     {"stop", mp_camera_scanner_stop, METH_NOARGS,
      "stop(): stop capture, release the camera, and end the preview session. Idempotent."},

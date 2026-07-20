@@ -5,7 +5,7 @@
 // so `import camera_entropy` resolves on both platforms.
 //
 // Contract (identical to the ESP):
-//   start(seed_hash=None)   live preview + chaining begins  (Pi adds optional rotate/target_fps)
+//   start(seed_hash=None)   live preview + chaining begins
 //   frames_chained()        live count for a progress indicator
 //   capture()               pin exposure + latch the final frame
 //   get_result()            (chain, frame, n) | None  (poll a few ms after capture)
@@ -52,19 +52,17 @@ static PyObject *raise_camera_oserror(int code) {
     return NULL;
 }
 
-// start(seed_hash=None, rotate=90, target_fps=15) -> None. Optional 32-byte caller
-// uniqueness seed (bytes, NOT an entropy source). Raises OSError(code, msg) on bring-up
-// failure — `.errno` is a stable CAMERA_ERR_* code (camera_error.h), identical on Pi +
-// ESP; the app routes on it. rotate/target_fps are Pi-only optional extras (the ESP has
-// no analog); the platform-agnostic start()/start(seed) call works on both.
+// start(seed_hash=None) -> None. Optional 32-byte caller uniqueness seed (bytes, NOT an
+// entropy source). Raises OSError(code, msg) on bring-up failure — `.errno` is a stable
+// CAMERA_ERR_* code (camera_error.h), identical on Pi + ESP; the app routes on it.
+// Argument-identical to the ESP camera_entropy.start(): rotation is the sticky
+// set_camera_rotation() device setting, not a per-call argument.
 static PyObject *mp_camera_entropy_start(PyObject *self, PyObject *args, PyObject *kwargs) {
     (void)self;
-    static const char *kwlist[] = {"seed_hash", "rotate", "target_fps", NULL};
+    static const char *kwlist[] = {"seed_hash", NULL};
     PyObject *seed_obj = NULL;
-    int rotate = 90;
-    int target_fps = 15;
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|Oii", const_cast<char **>(kwlist),
-                                     &seed_obj, &rotate, &target_fps)) {
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|O", const_cast<char **>(kwlist),
+                                     &seed_obj)) {
         return NULL;
     }
 
@@ -115,7 +113,7 @@ static PyObject *mp_camera_entropy_start(PyObject *self, PyObject *args, PyObjec
         return NULL;
     }
 
-    int err = camera_entropy_engine_start(rotate, target_fps);
+    int err = camera_entropy_engine_start();
     if (err != CAMERA_OK) {
         camera_preview_close_session();  // roll back the screen so a retry starts clean
         return raise_camera_oserror(err);
@@ -215,7 +213,7 @@ static PyObject *mp_camera_entropy_resume(PyObject *self, PyObject *args) {
 
 static PyMethodDef camera_entropy_methods[] = {
     {"start", (PyCFunction)mp_camera_entropy_start, METH_VARARGS | METH_KEYWORDS,
-     "start(seed_hash=None, rotate=90, target_fps=15): bring up the native entropy preview + "
+     "start(seed_hash=None): bring up the native entropy preview + "
      "capture engine and begin chaining. Raises OSError on bring-up failure."},
     {"stop", mp_camera_entropy_stop, METH_NOARGS,
      "stop(): stop capture, release the camera, end the preview session. Idempotent."},

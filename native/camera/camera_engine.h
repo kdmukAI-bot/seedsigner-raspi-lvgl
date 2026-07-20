@@ -20,14 +20,18 @@
 
 // Bring up a live preview session and begin capture. The camera_preview screen +
 // overlay must already exist (camera_scanner.start builds them first) — the engine
-// reads its sink dimensions and publishes converted frames into it. rotate is one
-// of 0/90/180/270; target_fps caps the sensor frame duration.
+// reads its sink dimensions and publishes converted frames into it.
+//
+// Takes no rotation or fps argument: rotation is a sticky device setting sampled
+// here from camera_config (composed with the sensor-mount base), and the frame
+// duration cap is the CAMERA_TARGET_FPS constant. That keeps this start() argument-
+// identical to the ESP camera_scanner.start().
 //
 // Returns CAMERA_OK (0) on success, or a camera_error.h code (CAMERA_ERR_*) on
 // bring-up failure (no camera, config invalid, allocation/start failure) — the
 // binding raises OSError(code, camera_error_str(code)), matching the ESP
 // camera_scanner.start() contract (same codes on both platforms).
-int camera_engine_start(int rotate, int target_fps);
+int camera_engine_start();
 
 // Stop capture, join the blit worker, release the camera + CameraManager, unmap
 // buffers. Idempotent (safe to call when not running).
