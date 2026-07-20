@@ -40,13 +40,20 @@ bool entropy_coord_is_armed();
 // Latch the final frame (producer): copy rgb565 (len bytes) as the final image and freeze
 // the chain digest at its current value (finalized from a COPY of the ctx, so resume()
 // can keep chaining). Marks captured; clears armed. No-op if already captured or not armed.
-void entropy_coord_latch(const uint8_t *rgb565, size_t len);
+//
+// w/h are the latched frame's DISPLAY-orientation dimensions. They are carried with the
+// buffer because the final still is NOT the preview/sink geometry: the engine captures a
+// dedicated wider, higher-resolution still stream (see camera_entropy_engine.h), so no
+// consumer may infer the frame's shape from the sink dims or from len alone.
+void entropy_coord_latch(const uint8_t *rgb565, size_t len, int w, int h);
 
 // Snapshot the result (consumer). Returns false until latch() completes. On success sets
-// any non-null out: chain -> 32-byte digest, frame -> latched RGB565 bytes, n -> frames
-// chained. The chain/frame pointers stay valid until resume() or reset().
+// any non-null out: chain -> 32-byte digest, frame -> latched RGB565 bytes, frame_w/frame_h
+// -> that frame's display-orientation dims, n -> frames chained. The chain/frame pointers
+// stay valid until resume() or reset().
 bool entropy_coord_get_result(const uint8_t **chain, size_t *chain_len,
-                              const uint8_t **frame, size_t *frame_len, uint32_t *n);
+                              const uint8_t **frame, size_t *frame_len,
+                              int *frame_w, int *frame_h, uint32_t *n);
 
 // Reshoot (consumer): discard the latch, unset armed/captured, and resume chaining from
 // where the digest left off (accumulated preview entropy retained).
@@ -56,6 +63,10 @@ void entropy_coord_resume();
 uint32_t entropy_coord_frames_chained();
 
 // Zeroize the chain ctx, digest, and latch buffer (called at stop). Idempotent.
+//
+// reset(), resume() and wipe() all scrub the digest and the latched frame through
+// ss_secure_zero() BEFORE releasing the buffer, so neither is handed back to the
+// allocator still holding seed-derivation material (matches the ESP32 sibling).
 void entropy_coord_wipe();
 
 #endif  // SS_ENTROPY_COORDINATOR_H

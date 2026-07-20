@@ -173,10 +173,12 @@ void camera_entropy_build_session(const std::string &preview_instructions,
                                   const std::string &accept_label);
 // Flip the entropy overlay phase (0 PREVIEW / 1 CAPTURING / 2 CONFIRM). No-op if none active.
 void camera_entropy_set_phase(int phase);
-// Build the CONFIRM review image (crop-to-fill + color-preserving contrast stretch via the
-// portable image_entropy_process) from the latched RAW sink-square frame and hand it to the
-// overlay. DISPLAY-ONLY — never fed into the entropy chain.
-void camera_entropy_build_confirm_image(const uint8_t *raw_rgb565, int square_w, int square_h);
+// Build the CONFIRM review image (aspect-fit with a capped letterbox + color-preserving
+// contrast stretch via the portable image_entropy_process) from the latched RAW frame and
+// hand it to the overlay. DISPLAY-ONLY — never fed into the entropy chain. src_w/src_h are
+// the latched still's own display-orientation dims (from entropy_coord_get_result), NOT the
+// sink dims — the still is wider and higher-resolution than the preview.
+void camera_entropy_build_confirm_image(const uint8_t *raw_rgb565, int src_w, int src_h);
 
 // camera_entropy.cpp — nested Python module implementing the ESP camera_entropy contract
 // (start/stop/set_labels/is_running/frames_chained/capture/get_result/resume). Attaches the
