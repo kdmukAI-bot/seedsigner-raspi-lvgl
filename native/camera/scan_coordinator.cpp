@@ -9,39 +9,20 @@
 namespace {
 
 constexpr size_t kRingCap = 24;   // unique NEW payloads awaiting the consumer
-constexpr size_t kSeenCap = 16;   // recent payload hashes for NEW/REPEAT dedup
 
 std::mutex                         s_mtx;
-std::deque<std::vector<uint8_t>>   s_ring;      // NEW payloads, FIFO
-std::deque<uint64_t>               s_seen;      // recent payload hashes (dedup window)
+std::deque<std::vector<uint8_t>>   s_ring;         // NEW payloads, FIFO
+std::vector<uint8_t>               s_last_fwd;      // last forwarded payload (consecutive-dedup)
+bool                               s_have_last_fwd = false;
 ScanStatus                         s_status = {SCAN_FRAME_NONE, 0, 0, false};
-
-// FNV-1a over the payload — a cheap dedup key. The consumer's DecodeQR is the
-// authoritative dedup; this only keeps the same held QR from flooding the ring.
-uint64_t hash_payload(const uint8_t *p, size_t n) {
-    uint64_t h = 1469598103934665603ULL;
-    for (size_t i = 0; i < n; ++i) {
-        h ^= p[i];
-        h *= 1099511628211ULL;
-    }
-    return h;
-}
-
-bool seen_recently(uint64_t h) {
-    for (uint64_t v : s_seen) {
-        if (v == h) {
-            return true;
-        }
-    }
-    return false;
-}
 
 }  // namespace
 
 void scan_coord_reset() {
     std::lock_guard<std::mutex> lk(s_mtx);
     s_ring.clear();
-    s_seen.clear();
+    s_last_fwd.clear();
+    s_have_last_fwd = false;
     s_status = {SCAN_FRAME_NONE, 0, 0, false};
 }
 
@@ -56,17 +37,21 @@ void scan_coord_on_frame(const uint8_t *payload, size_t len) {
         return;
     }
 
-    uint64_t h = hash_payload(payload, len);
-    if (seen_recently(h)) {
+    // Consecutive-only dedup (mirrors esp-board-common's scan_coordinator last_fwd):
+    // REPEAT iff byte-identical to the last forwarded payload — a QR held still on one
+    // part. A cycled-back part differs from the previous frame, so it flows through as
+    // NEW and the consumer's DecodeQR reclassifies it (PART_EXISTING) with a real index.
+    // Set-membership would suppress those index-bearing domain-repeats — wrong layer.
+    bool same = s_have_last_fwd && len == s_last_fwd.size() &&
+                memcmp(payload, s_last_fwd.data(), len) == 0;
+    if (same) {
         s_status.latest = SCAN_FRAME_REPEAT;
         return;
     }
 
-    // Fresh payload: record it in the dedup window and push to the NEW ring.
-    s_seen.push_back(h);
-    if (s_seen.size() > kSeenCap) {
-        s_seen.pop_front();
-    }
+    // Fresh vs the last frame: record it and push to the NEW ring.
+    s_last_fwd.assign(payload, payload + len);
+    s_have_last_fwd = true;
     if (s_ring.size() >= kRingCap) {
         s_ring.pop_front();          // drop oldest un-drained NEW = lost progress
         s_status.dropped_new++;
