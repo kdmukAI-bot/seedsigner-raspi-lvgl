@@ -517,6 +517,24 @@ void camera_preview_report(int frame_status, int percent) {
     }
 }
 
+// Segmented (indexed-cycle) progress for BBQR/Specter, driven by
+// camera_scanner.begin_segments()/segment_event(). The SCREEN owns the decoded set: the
+// host announces the cycle size once, then streams one event per decode frame and the
+// overlay derives the percent from its own lit count. UR/fountain + single-frame QRs stay
+// on camera_preview_report() (the continuous bar). No-op when no overlay is active.
+void camera_preview_begin_segments(int total_segments) {
+    if (s_overlay) {
+        camera_preview_overlay_begin_segments(s_overlay, total_segments);
+    }
+}
+
+void camera_preview_segment_event(int frame_status, int piece_index) {
+    if (s_overlay) {
+        camera_preview_overlay_segment_event(
+            s_overlay, (camera_overlay_frame_status_t)frame_status, piece_index);
+    }
+}
+
 // camera_preview_set_scanning(active: bool) -> None
 // Toggle between the back-affordance state and the status-bar state.
 PyObject *py_camera_preview_set_scanning(PyObject *self, PyObject *args) {
