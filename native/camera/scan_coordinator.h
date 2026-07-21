@@ -36,8 +36,11 @@ struct ScanStatus {
 void scan_coord_reset();
 
 // One decoded frame's outcome (decode worker thread). payload==nullptr/len==0 means
-// "nothing decoded this frame" (NONE). A payload is deduped against a small recent-set:
-// unseen -> NEW (pushed to the ring), seen -> REPEAT. Updates the status cell.
+// "nothing decoded this frame" (NONE). A payload is deduped consecutive-only against the
+// last forwarded payload: byte-identical (a QR held still) -> REPEAT; otherwise -> NEW
+// (pushed to the ring). Cycled-back parts differ from the prior frame, so they flow as
+// NEW and the consumer's DecodeQR re-classifies them with a real part index. Updates the
+// status cell.
 void scan_coord_on_frame(const uint8_t *payload, size_t len);
 
 // Drain one NEW payload into out (consumer thread). Returns false when the ring is
