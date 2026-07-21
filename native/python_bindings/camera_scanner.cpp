@@ -85,8 +85,11 @@ static PyObject *mp_camera_scanner_start(PyObject *self, PyObject *args, PyObjec
         return NULL;
     }
 
-    // Flip the overlay to the scanning status-bar state (subsumes set_scanning(True)).
-    camera_preview_set_scanning_active(true);
+    // Leave the overlay in the back-affordance state (the "< back | Scan a QR code"
+    // instruction line, hardware mode) on entry. The status bar is raised LAZILY by the
+    // first multi-part partial-progress report (see camera_preview_report's s_scan_saw_partial
+    // gate): a static single-frame QR completes on its first read and so never raises the bar,
+    // matching the ESP's static-scan look. Idle/held frames (pct == 0) keep the instruction up.
 
     int err = camera_engine_start();
     if (err != CAMERA_OK) {

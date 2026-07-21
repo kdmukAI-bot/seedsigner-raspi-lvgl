@@ -52,6 +52,13 @@ static camera_preview_overlay_t *s_overlay  = nullptr;
 // The image-entropy flow reuses the SAME sink (s_cam_*) — scan and entropy are mutually
 // exclusive, so only one overlay handle is ever live. Its own handle struct, freed on close.
 static camera_entropy_overlay_t *s_entropy_overlay = nullptr;
+// Static-QR progress-bar suppression. A single-frame QR completes on its first successful
+// read, so driving the bar to 100% only flashes it as the screen tears down. Track whether
+// any *partial* (0 < pct < 100) progress was ever reported this session; if not, the 100%
+// completion is suppressed so the bar never appears for a static decode. Reset per session
+// in camera_preview_build_session(). Mirrors the ESP, which never raises the bar on a static
+// scan. Only a multi-part decode ever reports a percent strictly between 0 and 100.
+static bool s_scan_saw_partial = false;
 
 // Drop the overlay handle + backing buffer. Safe after the screen was reaped
 // externally: overlay_destroy() only touches the anim subsystem + frees the handle
@@ -104,6 +111,9 @@ void camera_preview_build_session(const std::string &instructions) {
             camera_preview_overlay_destroy(s_overlay);
             s_overlay = nullptr;
         }
+
+        // Fresh session: no partial progress seen yet, so a static decode stays suppressed.
+        s_scan_saw_partial = false;
 
         const int32_t w = lv_display_get_horizontal_resolution(NULL);
         const int32_t h = lv_display_get_vertical_resolution(NULL);
@@ -511,10 +521,19 @@ void camera_preview_set_scanning_active(bool active) {
 // — the REVERSE of set_progress(percent, frame_status), which retires with the rest of
 // the Phase-0 surface. No-op when no overlay is active.
 void camera_preview_report(int frame_status, int percent) {
-    if (s_overlay) {
-        camera_preview_overlay_set_progress(
-            s_overlay, percent, (camera_overlay_frame_status_t)frame_status);
-    }
+    if (!s_overlay) return;
+    // Only a multi-part decode ever reports a percent strictly between 0 and 100; an idle/held
+    // frame reports pct == 0 (FRAME_REPEAT/FRAME_NONE) and does not count as partial progress.
+    if (percent > 0 && percent < 100) s_scan_saw_partial = true;
+    // Until a multi-part frame is actually decoded, stay in the back-affordance state (the
+    // "< back | Scan a QR code" instruction, hardware mode). set_progress() implies scanning
+    // (it raises the bar and hides the instruction), so gate every report until the first real
+    // partial: idle/held frames (pct == 0) and a static QR's lone completion (pct >= 100 with no
+    // partial ever seen) both stay suppressed -> the bar never appears for a static scan, and the
+    // instruction line stays up until an animated QR starts decoding. Matches the ESP.
+    if (!s_scan_saw_partial) return;
+    camera_preview_overlay_set_progress(
+        s_overlay, percent, (camera_overlay_frame_status_t)frame_status);
 }
 
 // Segmented (indexed-cycle) progress for BBQR/Specter, driven by
