@@ -154,6 +154,10 @@ void camera_preview_set_scanning_active(bool active);
 // Drive the overlay bar/dot from camera_scanner.report() — arg order (frame_status,
 // percent) per the ESP contract (reverse of set_progress).
 void camera_preview_report(int frame_status, int percent);
+// Segmented-progress forwarders (camera_scanner.begin_segments()/segment_event()):
+// BBQR/Specter indexed cycles; the screen owns the decoded set. No-op without an overlay.
+void camera_preview_begin_segments(int total_segments);
+void camera_preview_segment_event(int frame_status, int piece_index);
 // Tear the live session down before lv_deinit() so its statics can't dangle into
 // the next lvgl_init(); called from lvgl_runtime_shutdown().
 void camera_preview_on_lvgl_shutdown();

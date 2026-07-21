@@ -205,6 +205,37 @@ static PyObject *mp_camera_scanner_report_complete(PyObject *self, PyObject *arg
     Py_RETURN_NONE;
 }
 
+// begin_segments(total_segments) -> None. Announce an INDEXED animated-QR cycle (BBQR /
+// Specter) of `total_segments` pieces: the overlay switches its bar from the continuous
+// fill to per-piece cells. From here the SCREEN owns the decoded set and derives the
+// percent; the host streams one segment_event() per decode frame. total_segments <= 0 is a
+// no-op — UR/fountain and single-frame scans keep using report(). No-op without an overlay.
+static PyObject *mp_camera_scanner_begin_segments(PyObject *self, PyObject *args) {
+    (void)self;
+    int total_segments = 0;
+    if (!PyArg_ParseTuple(args, "i", &total_segments)) {
+        return NULL;
+    }
+    camera_preview_begin_segments(total_segments);
+    Py_RETURN_NONE;
+}
+
+// segment_event(status, piece_index) -> None. One decode event in segmented mode. `status`
+// is FRAME_* : ADDED(1) lights piece `piece_index` and advances the derived percent
+// (idempotent if already lit) + makes it the current "burst" cell; REPEATED(2) marks the
+// already-lit `piece_index` as the current re-read cell (no percent change); MISS(3) updates
+// the dot only. piece_index is 0-based for ADDED/REPEATED, -1 for MISS. No-op before
+// begin_segments() (or without an overlay). Arg order (status, piece_index) is the contract.
+static PyObject *mp_camera_scanner_segment_event(PyObject *self, PyObject *args) {
+    (void)self;
+    int status = 0, piece_index = -1;
+    if (!PyArg_ParseTuple(args, "ii", &status, &piece_index)) {
+        return NULL;
+    }
+    camera_preview_segment_event(status, piece_index);
+    Py_RETURN_NONE;
+}
+
 static PyMethodDef camera_scanner_methods[] = {
     {"start", (PyCFunction)mp_camera_scanner_start, METH_VARARGS | METH_KEYWORDS,
      "start(focus_assist=False, instructions_text=None): bring up the "
@@ -221,6 +252,12 @@ static PyMethodDef camera_scanner_methods[] = {
      "report(status, percent): drive the overlay dot + progress bar. status is FRAME_*."},
     {"report_complete", mp_camera_scanner_report_complete, METH_NOARGS,
      "report_complete(): terminal — drive the bar to full + green."},
+    {"begin_segments", mp_camera_scanner_begin_segments, METH_VARARGS,
+     "begin_segments(total_segments): switch the bar to per-piece cells for an indexed "
+     "BBQR/Specter cycle. The screen owns the decoded set; stream segment_event() per frame."},
+    {"segment_event", mp_camera_scanner_segment_event, METH_VARARGS,
+     "segment_event(status, piece_index): one decode event in segmented mode. status is "
+     "FRAME_* (ADDED/REPEATED carry the 0-based piece_index; MISS uses -1)."},
     {"_debug_stats", mp_camera_scanner_debug_stats, METH_NOARGS,
      "_debug_stats() -> (frames_in, frames_conv, frames_pub): lifetime frame counters."},
     {"_debug_decode_stats", mp_camera_scanner_debug_decode_stats, METH_NOARGS,
