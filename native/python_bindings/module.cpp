@@ -81,6 +81,7 @@ static PyMethodDef methods[] = {
     {"power_off_not_required_screen", py_power_off_not_required_screen, METH_VARARGS, "Build the 'Just Unplug It' advisory (centered wrapped message; cfg all-optional: text/top_nav; back shown); result is back."},
     {"power_options_screen", py_power_options_screen, METH_VARARGS, "Build the Reset/Power menu (large-icon tile grid; cfg requires 'top_nav.title' + a 'button_list' of exactly 2 or 4 label+icon items, e.g. Restart/Power off); result is button_selected(index) or back."},
     {"donate_screen", py_donate_screen, METH_VARARGS, "Build the Donate screen (body text + url default 'seedsigner.com'; cfg all-optional: text/url/top_nav; back shown); result is back."},
+    {"version_screen", py_version_screen, METH_VARARGS, "Build the Settings>Version screen (version name hard-wrapped to width + optional fork/commit rows + bottom-pinned timestamp; cfg requires top_nav.title/version_name/version_timestamp, optional version_fork/short_commit_hash); result is back."},
     {"io_test_screen", py_io_test_screen, METH_VARARGS, "Build the hardware I/O self-test (capture pictogram + KEY1 camera / KEY2 clear / KEY3 exit labels; cfg all-optional: capturing_text/clear_label/exit_label/camera_glyph); hardware-key driven."},
     {"screensaver_screen", py_screensaver_screen, METH_NOARGS, "Build the screensaver (bouncing logo); returns immediately. Manual-test helper (the overlay manager owns the screensaver at runtime)."},
 

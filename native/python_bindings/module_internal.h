@@ -231,6 +231,7 @@ PyObject *py_reset_screen(PyObject *self, PyObject *args);
 PyObject *py_power_off_not_required_screen(PyObject *self, PyObject *args);
 PyObject *py_power_options_screen(PyObject *self, PyObject *args);
 PyObject *py_donate_screen(PyObject *self, PyObject *args);
+PyObject *py_version_screen(PyObject *self, PyObject *args);
 PyObject *py_io_test_screen(PyObject *self, PyObject *args);
 PyObject *py_screensaver_screen(PyObject *self, PyObject *args);
 
