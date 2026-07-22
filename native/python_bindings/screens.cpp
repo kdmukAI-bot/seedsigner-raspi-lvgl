@@ -503,6 +503,14 @@ SCREEN_BINDING(power_options_screen)
 // default "Donate"). Result button_selected(1000).
 SCREEN_BINDING(donate_screen)
 
+// version_screen: Settings > Version — informational build readout. cfg (required
+// dict): "top_nav.title", "version_name" (the screen hard-wraps it to the panel
+// width), and "version_timestamp" (host pre-formatted "%Y-%m-%d %H:%M:%S UTC",
+// pinned bottom-center). Optional "version_fork" / "short_commit_hash" (absent or
+// "" -> that row hidden; the app nulls both for release images). No body
+// focusables; result is back (SEEDSIGNER_RET_BACK_BUTTON).
+SCREEN_BINDING(version_screen)
+
 // io_test_screen: the hardware I/O self-test — a capture pictogram with per-key
 // labels (KEY1 camera glyph / KEY2 clear / KEY3 exit); no back/power. Driven by
 // hardware key events, not a button_list. cfg all-optional: "capturing_text",
