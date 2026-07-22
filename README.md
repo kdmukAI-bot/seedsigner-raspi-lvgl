@@ -44,6 +44,46 @@ pip install -U pip pytest
 
 See `README-dev.md` for build commands, CI details, and Pi hardware testing.
 
+## Local dev workflow
+
+The loop is **build the extension → deploy it (with the app) to a dev Pi → iterate**.
+
+**1. Build the `.so`** — Docker QEMU ARMv6 cross-compile (~13 min cold, ~1 min with ccache):
+
+```bash
+./run_build.sh
+# -> src/seedsigner_lvgl_screens*.so   (+ uUR*.so, the native BC-UR decoder)
+```
+
+To build against an in-progress `seedsigner-lvgl-screens` tree instead of the pinned
+submodule, see `docs/knowledge/build-against-alternate-screens-tree.md`.
+
+**2. Deploy to a dev Pi** — `scripts/deploy-dev.sh` stops the app, syncs the app code plus
+the freshly built `.so`(s), (re)generates `version.json`, and restarts:
+
+```bash
+scripts/deploy-dev.sh 192.168.1.50           # bare host/IP -> root@ prepended
+scripts/deploy-dev.sh root@seedsigner.local  # or a full ssh target
+scripts/deploy-dev.sh -a /path/to/seedsigner # deploy a specific app checkout
+scripts/deploy-dev.sh --help                 # all flags
+```
+
+Config precedence is **CLI args > environment > `.env`** (copy `.env.example`):
+
+| Key | Set by | Meaning |
+|-----|--------|---------|
+| `SS_DEVICE` | positional arg / `-d` / env | ssh target of the dev Pi |
+| `SS_APP_DIR` | `-a` / env | the **seedsigner app** checkout to deploy |
+
+The current dev image is SeedSigner OS (root-only). Two things follow:
+
+- The `.so`(s) co-locate **inside the app dir** (the app's working dir at launch), so a bare
+  `import seedsigner_lvgl_screens` resolves with no `PYTHONPATH`.
+- SeedSigner OS reads version data **only** from `src/seedsigner/version.json` (never `git` at
+  runtime), and the sync strips `.git`. So the script regenerates that file from the app
+  checkout's git state the way a release image does (`tools/write_versionfile.py`, git commit
+  time). `SS_APP_DIR` must therefore be a **git checkout**; skip with `SS_SKIP_VERSIONFILE=1`.
+
 ## Hardware target
 
 - Raspberry Pi Zero (ARMv6, single supported profile)

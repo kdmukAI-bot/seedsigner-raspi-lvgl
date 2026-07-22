@@ -34,13 +34,56 @@
 # DEV-ONLY. This is the "rsync onto a live Pi" loop for the maintainer's dev box.
 # It is NOT how SeedSigner ships: SeedSigner OS bakes its own buildroot image.
 #
-# Config: real environment variables win; otherwise values are read from a .env in
-# the repo root (see .env.example). Usage:
-#   scripts/deploy-dev.sh
+# Config precedence (highest first): CLI args, real environment variables, then a
+# .env in the repo root (see .env.example). Usage:
+#   scripts/deploy-dev.sh [SSH_TARGET] [-d TARGET] [-a APP_DIR]
+#   e.g.  scripts/deploy-dev.sh root@192.168.1.50
+#         scripts/deploy-dev.sh 192.168.1.50        # bare host/IP -> root@ prepended
+#
+# Before syncing, it (re)generates the app's src/seedsigner/version.json from the
+# checkout's git state the way the release build does (tools/write_versionfile.py
+# with SEEDSIGNER_OS_BUILDER=1). SeedSigner OS reads version data ONLY from that
+# file (never `git` at runtime) and the app sync strips .git, so without it the
+# on-device splash + Settings>Version have nothing to show. Disable with
+# SS_SKIP_VERSIONFILE=1.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# --- CLI args (override env AND .env, for a quick one-off target) --------------
+# Positional SSH_TARGET (or -d/--device) -> SS_DEVICE; -a/--app-dir -> SS_APP_DIR.
+# Exported here so the .env snapshot below carries them over a .env value.
+_ss_usage() {
+  cat >&2 <<EOF
+Usage: $(basename "$0") [SSH_TARGET] [options]
+  SSH_TARGET             device ssh target, e.g. root@192.168.1.50. A bare host or
+                         IP (no "@") gets "root@" prepended (the dev image is
+                         root-only). Overrides SS_DEVICE.
+  -d, --device TARGET    same as the positional SSH_TARGET.
+  -a, --app-dir DIR      seedsigner app checkout root. Overrides SS_APP_DIR.
+  -h, --help             show this help.
+Anything not given on the CLI falls back to env vars, then .env (see .env.example).
+EOF
+}
+_cli_device=""; _cli_app_dir=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -h|--help)    _ss_usage; exit 0 ;;
+    -d|--device)  _cli_device="${2:?--device needs a value}"; shift 2 ;;
+    -a|--app-dir) _cli_app_dir="${2:?--app-dir needs a value}"; shift 2 ;;
+    --)           shift; break ;;
+    -*)           echo "Unknown option: $1" >&2; _ss_usage; exit 2 ;;
+    *)            if [ -z "$_cli_device" ]; then _cli_device="$1"; shift;
+                  else echo "Unexpected extra argument: $1" >&2; _ss_usage; exit 2; fi ;;
+  esac
+done
+if [ -n "$_cli_device" ]; then
+  case "$_cli_device" in *@*) : ;; *) _cli_device="root@$_cli_device" ;; esac
+  export SS_DEVICE="$_cli_device"
+fi
+if [ -n "$_cli_app_dir" ]; then export SS_APP_DIR="$_cli_app_dir"; fi
+unset _cli_device _cli_app_dir
 
 # Load .env (repo root) if present; process env still overrides it.
 #
@@ -83,6 +126,30 @@ SS_CTL="${SS_CTL:-seedsigner}"
   || { echo "ERROR: no src/seedsigner under SS_APP_DIR=$SS_APP_DIR" >&2; exit 1; }
 
 RSYNC=(rsync -az --exclude='__pycache__' --exclude='*.pyc' --exclude='.DS_Store')
+
+# --- Generate version.json (release-image approach) --------------------------
+# SeedSigner OS reads version data ONLY from src/seedsigner/version.json (never
+# `git` at runtime), and the [1/4] app sync strips .git — so without this file the
+# on-device splash + Settings>Version have nothing to show. Regenerate it from the
+# checkout's git state exactly as the release build does (the app's own
+# tools/write_versionfile.py; SEEDSIGNER_OS_BUILDER=1 makes version_timestamp the
+# git commit time rather than a file mtime). It writes
+# $SS_APP_DIR/src/seedsigner/version.json, which the [1/4] sync then carries over
+# (version.json is not excluded). Best-effort — a failure here never aborts deploy.
+if [ "${SS_SKIP_VERSIONFILE:-0}" = 1 ]; then
+  echo "==> [prep] version.json: skipped (SS_SKIP_VERSIONFILE=1)"
+elif [ -e "$SS_APP_DIR/.git" ] && [ -f "$SS_APP_DIR/tools/write_versionfile.py" ]; then
+  echo "==> [prep] version.json <- git state of $SS_APP_DIR"
+  if ( cd "$SS_APP_DIR" && SEEDSIGNER_OS_BUILDER=1 PYTHONPATH=src "${SS_PYTHON:-python3}" \
+         tools/write_versionfile.py >/dev/null ); then
+    grep -o '"name"[^,]*' "$SS_APP_DIR/src/seedsigner/version.json" 2>/dev/null | sed 's/^/    /' || true
+  else
+    echo "    WARN: write_versionfile.py failed — deploying without a refreshed version.json" >&2
+  fi
+else
+  echo "==> [prep] version.json: skipped — $SS_APP_DIR is not a git checkout" >&2
+  echo "           (SeedSigner OS reads version data only from version.json; on-device version may be blank)" >&2
+fi
 
 # --- Stop the app so the sync can replace the in-use .so and free GPIO/SPI ----
 echo "==> [0/4] stop app  ($SS_DEVICE: $SS_CTL stop)"
