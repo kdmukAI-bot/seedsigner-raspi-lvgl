@@ -471,6 +471,13 @@ int camera_engine_start() {
     }
     zbar_image_scanner_set_config(g->zbar, ZBAR_NONE, ZBAR_CFG_ENABLE, 0);
     zbar_image_scanner_set_config(g->zbar, ZBAR_QRCODE, ZBAR_CFG_ENABLE, 1);
+    // Return byte-mode QR payloads as RAW bytes (ZBAR_CFG_BINARY = "don't convert
+    // binary data to text"). Without it, zbar applies an ECI/charset conversion to
+    // byte-mode content, corrupting binary QRs — notably CompactSeedQR (16/32 raw
+    // entropy bytes, which routinely contain non-ASCII/NUL bytes). Numeric SeedQR
+    // (ASCII digits) is unaffected either way. Mirrors the app's upstream pyzbar fork,
+    // whose `binary=True` sets this same zbar config.
+    zbar_image_scanner_set_config(g->zbar, ZBAR_QRCODE, ZBAR_CFG_BINARY, 1);
     zbar_image_scanner_enable_cache(g->zbar, 0);
     scan_coord_reset();
 
