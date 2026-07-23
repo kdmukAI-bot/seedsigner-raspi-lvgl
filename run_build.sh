@@ -20,6 +20,29 @@ IMAGE_TAG="${IMAGE_TAG:-ghcr.io/kdmukai-bot/seedsigner-raspi-lvgl/sdk-armv6:ss-o
 REL_REPO_PATH="$(realpath --relative-to="${WS_ROOT}" "${ROOT_DIR}")"
 CONTAINER_REPO_DIR="${CONTAINER_REPO_DIR:-/workspace/${REL_REPO_PATH}}"
 
+# --- Optional: build from a LIVE screens checkout (SS_SCREENS_SRC) ------------
+# Point SS_SCREENS_SRC at a seedsigner-lvgl-screens checkout on the HOST to compile
+# its (possibly uncommitted) source instead of the pinned sources/ submodule -- for
+# testing live screens changes without a submodule bump. It must live UNDER WS_ROOT
+# (the dev/ tree mounted at /workspace) so the container can see it; both the screens
+# source and its nested LVGL are taken from there, kept consistent.
+if [ -n "${SS_SCREENS_SRC:-}" ]; then
+  _screens_abs="$(cd "${SS_SCREENS_SRC}" 2>/dev/null && pwd)" \
+    || { echo "[run-build] ERROR: SS_SCREENS_SRC not found: ${SS_SCREENS_SRC}" >&2; exit 1; }
+  _screens_rel="$(realpath --relative-to="${WS_ROOT}" "${_screens_abs}")"
+  case "${_screens_rel}" in
+    ../*|/*) echo "[run-build] ERROR: SS_SCREENS_SRC must live under WS_ROOT (${WS_ROOT}) so the build container can mount it: ${_screens_abs}" >&2; exit 1 ;;
+  esac
+  [ -d "${_screens_abs}/components/seedsigner/screens" ] \
+    || { echo "[run-build] ERROR: no components/seedsigner/screens under SS_SCREENS_SRC: ${_screens_abs}" >&2; exit 1; }
+  [ -f "${_screens_abs}/third_party/lvgl/lvgl.h" ] \
+    || { echo "[run-build] ERROR: no third_party/lvgl/lvgl.h under SS_SCREENS_SRC (nested LVGL submodule not checked out?): ${_screens_abs}" >&2; exit 1; }
+  export SEEDSIGNER_LVGL_SCREENS_DIR="/workspace/${_screens_rel}"
+  export LVGL_ROOT="/workspace/${_screens_rel}/third_party/lvgl"
+  echo "[run-build] screens source OVERRIDE (SS_SCREENS_SRC): ${_screens_abs}"
+  echo "[run-build]   container SEEDSIGNER_LVGL_SCREENS_DIR=${SEEDSIGNER_LVGL_SCREENS_DIR}"
+fi
+
 RUN_TS="${RUN_TS:-$(date -u +%Y%m%d-%H%M%S)}"
 LOG_DIR="${ROOT_DIR}/logs"
 mkdir -p "${LOG_DIR}"

@@ -62,16 +62,22 @@ Usage: $(basename "$0") [SSH_TARGET] [options]
                          root-only). Overrides SS_DEVICE.
   -d, --device TARGET    same as the positional SSH_TARGET.
   -a, --app-dir DIR      seedsigner app checkout root. Overrides SS_APP_DIR.
+  -s, --screens-dir DIR  seedsigner-lvgl-screens checkout to BUILD the .so from
+                         (live/uncommitted screens source). Implies --build. Must
+                         live under the dev/ tree (WS_ROOT). Overrides SS_SCREENS_DIR.
+      --build            (re)build the .so via run_build.sh before deploying.
   -h, --help             show this help.
 Anything not given on the CLI falls back to env vars, then .env (see .env.example).
 EOF
 }
-_cli_device=""; _cli_app_dir=""
+_cli_device=""; _cli_app_dir=""; _cli_screens_dir=""; _cli_build=0
 while [ "$#" -gt 0 ]; do
   case "$1" in
     -h|--help)    _ss_usage; exit 0 ;;
     -d|--device)  _cli_device="${2:?--device needs a value}"; shift 2 ;;
     -a|--app-dir) _cli_app_dir="${2:?--app-dir needs a value}"; shift 2 ;;
+    -s|--screens-dir) _cli_screens_dir="${2:?--screens-dir needs a value}"; shift 2 ;;
+    --build)      _cli_build=1; shift ;;
     --)           shift; break ;;
     -*)           echo "Unknown option: $1" >&2; _ss_usage; exit 2 ;;
     *)            if [ -z "$_cli_device" ]; then _cli_device="$1"; shift;
@@ -83,7 +89,9 @@ if [ -n "$_cli_device" ]; then
   export SS_DEVICE="$_cli_device"
 fi
 if [ -n "$_cli_app_dir" ]; then export SS_APP_DIR="$_cli_app_dir"; fi
-unset _cli_device _cli_app_dir
+if [ -n "$_cli_screens_dir" ]; then export SS_SCREENS_DIR="$_cli_screens_dir"; fi
+if [ "$_cli_build" = 1 ]; then export SS_BUILD=1; fi
+unset _cli_device _cli_app_dir _cli_screens_dir _cli_build
 
 # Load .env (repo root) if present; process env still overrides it.
 #
@@ -103,6 +111,22 @@ fi
 # --- Config (env-driven) -----------------------------------------------------
 : "${SS_DEVICE:?set SS_DEVICE (e.g. root@seedsigner.local) — see .env.example}"
 : "${SS_APP_DIR:?set SS_APP_DIR — the seedsigner app checkout root — see .env.example}"
+
+# --- Optional (re)build before deploy ----------------------------------------
+# A screens source dir (SS_SCREENS_DIR / --screens-dir) or SS_BUILD=1 / --build
+# triggers a fresh build via run_build.sh, so a test deploy can pick up LIVE,
+# uncommitted seedsigner-lvgl-screens changes without touching the pinned submodule.
+# run_build.sh maps a HOST screens dir (must live under the dev/ tree) to the mounted
+# container path. Without either, deploy uses the newest existing .so (unchanged).
+if [ -n "${SS_SCREENS_DIR:-}" ] || [ "${SS_BUILD:-0}" = 1 ]; then
+  echo "==> [build] run_build.sh${SS_SCREENS_DIR:+  (screens source: $SS_SCREENS_DIR)}"
+  if [ -n "${SS_SCREENS_DIR:-}" ]; then
+    SS_SCREENS_SRC="$SS_SCREENS_DIR" "$REPO_ROOT/run_build.sh"
+  else
+    "$REPO_ROOT/run_build.sh"
+  fi
+fi
+
 # The .so built by this repo (default: newest in src/). The `|| true` keeps a
 # missing .so from killing the script here via pipefail+set -e — the preflight
 # below owns that error and prints an actionable message.
