@@ -513,14 +513,14 @@ SCREEN_BINDING(version_screen)
 
 // io_test_screen: the hardware I/O self-test — a capture pictogram with per-key
 // labels (KEY1 camera glyph / KEY2 clear / KEY3 exit); no back/power. Driven by
-// hardware key events, not a button_list. cfg all-optional: "capturing_text",
-// "clear_label" (default "Clear"), "exit_label" (default "Exit"), "camera_glyph",
-// "top_nav" (title default "I/O Test").
+// hardware key events, not a button_list. cfg requires the localized strings
+// "top_nav.title", "capturing_text", "clear_label" and "exit_label" (the C screen
+// throws if any is missing); optional "camera_glyph" (icon codepoint default).
 //
-// KNOWN GAP: the C screen forwards KEY1/2/3 to the host via the weak
-// seedsigner_lvgl_on_aux_key() hook, which this extension does NOT override —
-// no aux-key result reaches Python yet. Wire it (a new result kind in
-// result_queue.cpp) before the app navigates here.
+// KEY1/2/3 are forwarded to the host via seedsigner_lvgl_on_aux_key(); this
+// extension's strong override (result_queue.cpp) surfaces each as an
+// ("aux_key", 0, "KEY1"|"KEY2"|"KEY3") result. The host reflects its async
+// single-frame camera grab back via io_test_set_capture_state() (companion below).
 SCREEN_BINDING(io_test_screen)
 
 // --- Hand-written screens ------------------------------------------------------
@@ -673,6 +673,85 @@ PyObject *py_qr_display_is_tip_active(PyObject *self, PyObject *args) {
         Py_RETURN_TRUE;
     }
     Py_RETURN_FALSE;
+}
+
+// --- io_test_screen companion -------------------------------------------------
+
+// io_test_set_capture_state(state: int) -> None
+// Reflect the host's async single-frame camera grab in the running io_test_screen:
+// 0 IDLE (band hidden, KEY2 label blank), 1 CAPTURING ("Capturing image…" band up),
+// 2 CAPTURED (KEY2 label = "Clear"). Same host-push shape as qr_display_set_frame.
+// Safe no-op when no io_test_screen is active (the C setter guards on its live ctx).
+PyObject *py_io_test_set_capture_state(PyObject *self, PyObject *args) {
+    (void)self;
+
+    int state = 0;
+    if (!PyArg_ParseTuple(args, "i", &state)) {
+        return NULL;
+    }
+    if (state < IO_TEST_CAPTURE_IDLE || state > IO_TEST_CAPTURE_CAPTURED) {
+        PyErr_Format(PyExc_ValueError,
+                     "io_test_set_capture_state: state must be 0..2, got %d", state);
+        return NULL;
+    }
+
+    try {
+        require_lvgl_runtime();
+        io_test_set_capture_state((io_test_capture_state_t)state);
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+
+    Py_RETURN_NONE;
+}
+
+// io_test_get_camera_plane_dims() -> int
+// The centered-square camera plane's side (width == height) behind the io_test chrome;
+// the host center-crops its still to side x side before io_test_blit_camera(). Returns 0
+// when no io_test_screen is active (SCREENS-9 owned-plane contract).
+PyObject *py_io_test_get_camera_plane_dims(PyObject *self, PyObject *args) {
+    (void)self;
+    (void)args;
+
+    int width = 0, height = 0;
+    try {
+        require_lvgl_runtime();
+        io_test_get_camera_plane_dims(&width, &height);
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+    // The plane is square (width == height); return the side (0 when inactive).
+    return PyLong_FromLong(width);
+}
+
+// io_test_blit_camera(frame: bytes) -> None
+// Blit a host-captured RGB565 still (exactly side*side*2 bytes, per
+// io_test_get_camera_plane_dims) into the io_test camera plane and reveal it. A size
+// mismatch or the no-active-screen case is a silent no-op (the screen guards both).
+// Cleared by io_test_set_capture_state(IO_TEST_CAPTURE_IDLE). Zero-copy read; mirrors
+// camera_preview_set_frame.
+PyObject *py_io_test_blit_camera(PyObject *self, PyObject *args) {
+    (void)self;
+
+    Py_buffer view;
+    if (!PyArg_ParseTuple(args, "y*", &view)) {  // y* == read-only bytes-like, zero-copy
+        return NULL;
+    }
+
+    try {
+        require_lvgl_runtime();
+        io_test_blit_camera(reinterpret_cast<const uint8_t *>(view.buf),
+                            static_cast<size_t>(view.len));
+    } catch (const std::exception &e) {
+        PyBuffer_Release(&view);
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+
+    PyBuffer_Release(&view);
+    Py_RETURN_NONE;
 }
 
 // --- seed_address_verification_screen companion -------------------------------
