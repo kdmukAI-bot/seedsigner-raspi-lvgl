@@ -121,6 +121,7 @@ PyObject *py_poll_for_result(PyObject *self, PyObject *args);
 PyObject *py_clear_result_queue(PyObject *self, PyObject *args);
 PyObject *py_debug_emit_result(PyObject *self, PyObject *args);
 PyObject *py_debug_emit_qr_density(PyObject *self, PyObject *args);
+PyObject *py_debug_emit_aux_key(PyObject *self, PyObject *args);
 
 // locale_packs.cpp
 PyObject *py_set_locale(PyObject *self, PyObject *args);
@@ -131,6 +132,11 @@ PyObject *py_list_available_locales(PyObject *self, PyObject *args);
 // screens.cpp — non-screen companions
 PyObject *py_qr_display_set_frame(PyObject *self, PyObject *args);
 PyObject *py_qr_display_is_tip_active(PyObject *self, PyObject *args);
+// io_test_screen host-push companion: reflect the async camera grab (IDLE/CAPTURING/CAPTURED).
+PyObject *py_io_test_set_capture_state(PyObject *self, PyObject *args);
+// io_test_screen camera plane (SCREENS-9): report the square side + blit a host still.
+PyObject *py_io_test_get_camera_plane_dims(PyObject *self, PyObject *args);
+PyObject *py_io_test_blit_camera(PyObject *self, PyObject *args);
 PyObject *py_debug_last_path(PyObject *self, PyObject *args);
 // Mark a successful build in the shared _debug_last_path breadcrumb (for peer
 // subsystems whose builders live outside screens.cpp, e.g. camera_preview.cpp).
@@ -143,6 +149,9 @@ PyObject *py_camera_preview_set_frame_yuv420(PyObject *self, PyObject *args);
 PyObject *py_camera_preview_set_progress(PyObject *self, PyObject *args);
 PyObject *py_camera_preview_set_scanning(PyObject *self, PyObject *args);
 PyObject *py_camera_preview_close(PyObject *self, PyObject *args);
+// io_test single-frame grab (camera_preview.cpp): start/stop the engine feeding the io_test plane.
+PyObject *py_io_test_camera_start(PyObject *self, PyObject *args);
+PyObject *py_io_test_camera_stop(PyObject *self, PyObject *args);
 // Build the preview screen + overlay (shared by py_camera_preview_screen and the
 // native camera_scanner.start()). Throws std::runtime_error on failure.
 void camera_preview_build_session(const std::string &instructions);

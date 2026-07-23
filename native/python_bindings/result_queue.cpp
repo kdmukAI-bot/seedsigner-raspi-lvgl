@@ -13,12 +13,15 @@
 // the entered string in the label field), not just short button labels.
 #define RESULT_LABEL_MAX 256
 
-// Result kinds — mirrors the ESP binding VERBATIM (seedsigner-micropython-builder
-// modseedsigner_bindings.c): ONLY these four exist. Back/power are NOT distinct
-// kinds; they arrive as button_selected carrying the RET_CODE__* sentinel in the
-// index slot (see seedsigner_lvgl_on_button_selected). The MicroPython builder is
-// the design lead for this poll-queue contract, so both platforms return
-// byte-identical (kind, index, label) tuples.
+// Result kinds — the shared poll-queue contract (design lead: the MicroPython
+// builder, seedsigner-micropython-builder modseedsigner_bindings.c). Kinds 0..3
+// mirror the ESP binding VERBATIM and both platforms return byte-identical
+// (kind, index, label) tuples for them. Back/power are NOT distinct kinds; they
+// arrive as button_selected carrying the RET_CODE__* sentinel in the index slot
+// (see seedsigner_lvgl_on_button_selected). Kind 4 (aux_key) is the reserved next
+// value in that shared numbering: only the Pi-HW-only io_test_screen emits it
+// today (ESP never returns it yet), but the value is fixed so the ESP binding
+// mirrors it verbatim if it ever forwards aux keys.
 enum result_kind_t {
     RESULT_BUTTON_SELECTED = 0,
     RESULT_TEXT_ENTERED = 1,
@@ -33,6 +36,11 @@ enum result_kind_t {
     // (vertical_resolution, px_per_module) -> max_fragment_len and restarts the
     // animated-QR fountain.
     RESULT_QR_DENSITY = 3,
+    // An aux key (KEY1/KEY2/KEY3) was forwarded to the host — by io_test_screen's
+    // self-owned input, or by the nav layer for a NAV_AUX_EMIT key. The key name
+    // ("KEY1"/"KEY2"/"KEY3") rides in the label; index is 0. Surfaced as
+    // ("aux_key", 0, "KEY1"). Pi-only consumer today (io_test is Pi-HW-only).
+    RESULT_AUX_KEY = 4,
 };
 
 typedef struct {
@@ -73,6 +81,8 @@ static const char *kind_to_event_name(result_kind_t kind) {
             return "qr_brightness";
         case RESULT_QR_DENSITY:
             return "qr_density";
+        case RESULT_AUX_KEY:
+            return "aux_key";
         case RESULT_BUTTON_SELECTED:
         default:
             return "button_selected";
@@ -124,6 +134,17 @@ extern "C" void seedsigner_lvgl_on_qr_density(uint8_t px_per_module) {
     queue_push(RESULT_QR_DENSITY, static_cast<int>(px_per_module), "");
 }
 
+// Aux-key hook — strong override of the weak default in the screens library
+// (components.cpp). io_test_screen's self-owned input forwards KEY1/KEY2/KEY3 here
+// (and the nav layer forwards NAV_AUX_EMIT keys); each becomes ("aux_key", 0,
+// key_name) so the host can react (io_test: KEY1 grab / KEY2 clear / KEY3 exit).
+// Providing the strong override is REQUIRED, not an optimization — only the override
+// routes the event into this queue. `key_name` is "KEY1"/"KEY2"/"KEY3" (queue_push
+// tolerates a NULL label).
+extern "C" void seedsigner_lvgl_on_aux_key(const char *key_name) {
+    queue_push(RESULT_AUX_KEY, 0, key_name);
+}
+
 PyObject *py_poll_for_result(PyObject *self, PyObject *args) {
     (void)self;
     (void)args;
@@ -169,5 +190,19 @@ PyObject *py_debug_emit_qr_density(PyObject *self, PyObject *args) {
         return NULL;
     }
     seedsigner_lvgl_on_qr_density(static_cast<uint8_t>(px_per_module));
+    Py_RETURN_NONE;
+}
+
+// Test helper: fire the on_aux_key callback from Python so the aux-key result path
+// is exercisable in the desktop build. The real call site (io_test_screen's keypad
+// handler) is reachable only via hardware key events, so this mirrors
+// _debug_emit_qr_density for the aux-key kind.
+PyObject *py_debug_emit_aux_key(PyObject *self, PyObject *args) {
+    (void)self;
+    const char *key_name = "";
+    if (!PyArg_ParseTuple(args, "s", &key_name)) {
+        return NULL;
+    }
+    seedsigner_lvgl_on_aux_key(key_name);
     Py_RETURN_NONE;
 }

@@ -82,7 +82,10 @@ static PyMethodDef methods[] = {
     {"power_options_screen", py_power_options_screen, METH_VARARGS, "Build the Reset/Power menu (large-icon tile grid; cfg requires 'top_nav.title' + a 'button_list' of exactly 2 or 4 label+icon items, e.g. Restart/Power off); result is button_selected(index) or back."},
     {"donate_screen", py_donate_screen, METH_VARARGS, "Build the Donate screen (body text + url default 'seedsigner.com'; cfg all-optional: text/url/top_nav; back shown); result is back."},
     {"version_screen", py_version_screen, METH_VARARGS, "Build the Settings>Version screen (version name hard-wrapped to width + optional fork/commit rows + bottom-pinned timestamp; cfg requires top_nav.title/version_name/version_timestamp, optional version_fork/short_commit_hash); result is back."},
-    {"io_test_screen", py_io_test_screen, METH_VARARGS, "Build the hardware I/O self-test (capture pictogram + KEY1 camera / KEY2 clear / KEY3 exit labels; cfg all-optional: capturing_text/clear_label/exit_label/camera_glyph); hardware-key driven."},
+    {"io_test_screen", py_io_test_screen, METH_VARARGS, "Build the hardware I/O self-test (capture pictogram + KEY1 camera / KEY2 clear / KEY3 exit labels; cfg requires localized top_nav.title/capturing_text/clear_label/exit_label, optional camera_glyph). Hardware-key driven: KEY1/KEY2/KEY3 emit ('aux_key', 0, 'KEY1'|'KEY2'|'KEY3') results; reflect the async camera grab back with io_test_set_capture_state."},
+    {"io_test_set_capture_state", py_io_test_set_capture_state, METH_VARARGS, "io_test_set_capture_state(state): reflect the async camera grab in the live io_test_screen - 0 idle / 1 capturing (band shown) / 2 captured (KEY2 label = Clear). No-op when no io_test_screen is active."},
+    {"io_test_get_camera_plane_dims", py_io_test_get_camera_plane_dims, METH_NOARGS, "io_test_get_camera_plane_dims(): side (px) of the centered square camera plane behind the io_test chrome (width==height); 0 when no io_test_screen is active. Center-crop the still to side x side before io_test_blit_camera."},
+    {"io_test_blit_camera", py_io_test_blit_camera, METH_VARARGS, "io_test_blit_camera(frame): blit a host-captured RGB565 still (exactly side*side*2 bytes) into the io_test camera plane and reveal it. Size mismatch / no active screen = silent no-op. Cleared by io_test_set_capture_state(0)."},
     {"screensaver_screen", py_screensaver_screen, METH_NOARGS, "Build the screensaver (bouncing logo); returns immediately. Manual-test helper (the overlay manager owns the screensaver at runtime)."},
 
     // --- Live camera-preview scan surface (camera_preview.cpp) ----------------
@@ -96,6 +99,8 @@ static PyMethodDef methods[] = {
     {"camera_preview_set_progress", py_camera_preview_set_progress, METH_VARARGS, "camera_preview_set_progress(percent, frame_status): advance the overlay status bar (0..100) + status dot (0 none/1 added/2 repeated/3 miss). Implies scanning. A few times/sec, never per frame."},
     {"camera_preview_set_scanning", py_camera_preview_set_scanning, METH_VARARGS, "camera_preview_set_scanning(active): toggle between the back-affordance state (instruction text) and the scanning status-bar state."},
     {"camera_preview_close", py_camera_preview_close, METH_NOARGS, "End the camera-preview session: free the overlay handle + sink buffer. Call before loading the next screen. Idempotent."},
+    {"io_test_camera_start", py_io_test_camera_start, METH_NOARGS, "io_test_camera_start(): begin feeding the active io_test_screen's camera plane from the native engine (KEY1 grab). The app pumps its capturing hold, then calls io_test_camera_stop() to freeze the last frame. Raises OSError(code,msg) on camera bring-up failure; RuntimeError if no io_test_screen is active."},
+    {"io_test_camera_stop", py_io_test_camera_stop, METH_NOARGS, "io_test_camera_stop(): stop the engine (last frame stays frozen in the io_test plane) + clear the grab redirect. Idempotent."},
 
     // --- Native toast overlay (toast.cpp) -------------------------------------
     // A transient bottom banner built on the display's top layer: composites over the
@@ -113,6 +118,7 @@ static PyMethodDef methods[] = {
     {"_debug_last_path", py_debug_last_path, METH_NOARGS, "Debug helper for bridge path."},
     {"_debug_emit_result", py_debug_emit_result, METH_VARARGS, "Debug helper to inject callback-like events."},
     {"_debug_emit_qr_density", py_debug_emit_qr_density, METH_VARARGS, "Debug helper to fire the on_qr_density callback (px_per_module) into the result queue."},
+    {"_debug_emit_aux_key", py_debug_emit_aux_key, METH_VARARGS, "Debug helper to fire the on_aux_key callback (key_name) into the result queue."},
     {NULL, NULL, 0, NULL},
 };
 

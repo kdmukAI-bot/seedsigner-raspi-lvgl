@@ -32,6 +32,11 @@
 #include "camera_preview_sink.h"      // the Python-free sink bridge the native engine calls
 #include "camera_entropy_overlay.h"   // camera_entropy_overlay_* (portable image-entropy chrome)
 #include "image_entropy.h"            // image_entropy_process (portable contrast stretch + aspect-fit)
+#include "seedsigner.h"               // io_test_get_camera_plane_dims / io_test_blit_camera (io_test grab redirect)
+#ifdef SS_CAMERA_ENGINE
+#include "camera_engine.h"            // camera_engine_start/stop (io_test single-frame grab)
+#include "camera_error.h"             // camera_error_str (OSError text on grab failure)
+#endif
 
 #include <cstring>                    // memcpy
 #include <stdexcept>
@@ -344,11 +349,31 @@ PyObject *py_camera_preview_screen(PyObject *self, PyObject *args) {
 // Python-free entry points the native camera engine calls (camera_engine.cpp). All
 // three run on the pump/LVGL thread — the engine's consume hook fires inside
 // lvgl_runtime_pump — so blit_rgb565's lv_obj_invalidate stays on the LVGL locus.
+//
+// io_test grab redirect: io_test_screen owns its OWN square pixel plane (SCREENS-9),
+// not the camera_preview sink. While an io_test single-frame grab is active, this bridge
+// reports the io_test plane's dims to the UNCHANGED engine and STASHES each converted
+// frame (see blit_rgb565) instead of displaying it — the live stream is suppressed so the
+// plane stays dark during the "Capturing…" window. io_test_camera_stop() then reveals ONLY
+// the last stashed frame, so io_test shows a single captured still, not video. Scan and
+// io_test use different screens (never both live), so the redirect never collides with a sink.
+static bool s_io_test_grab = false;
+static std::vector<uint8_t> s_io_test_last_frame;  // last converted frame during a grab
+
 bool camera_preview_session_active() {
+    if (s_io_test_grab) {
+        int w = 0, h = 0;
+        io_test_get_camera_plane_dims(&w, &h);
+        return w > 0 && h > 0;
+    }
     return s_cam_img != nullptr && s_cam_data != nullptr;
 }
 
 void camera_preview_get_sink_dims(int *w, int *h) {
+    if (s_io_test_grab) {
+        io_test_get_camera_plane_dims(w, h);
+        return;
+    }
     if (w) {
         *w = static_cast<int>(s_cam_dsc.header.w);
     }
@@ -358,11 +383,67 @@ void camera_preview_get_sink_dims(int *w, int *h) {
 }
 
 void camera_preview_blit_rgb565(const uint8_t *rgb565, size_t nbytes) {
+    if (s_io_test_grab) {
+        // Suppress the live stream: stash the latest converted frame. io_test_camera_stop()
+        // reveals ONLY this last one, so io_test shows a single captured still (not video).
+        s_io_test_last_frame.assign(rgb565, rgb565 + nbytes);
+        return;
+    }
     if (!s_cam_img || !s_cam_data || nbytes != s_cam_size) {
         return;  // no session / size mismatch — silent no-op
     }
     memcpy(s_cam_data, rgb565, s_cam_size);
     lv_obj_invalidate(s_cam_img);
+}
+
+// --- io_test single-frame grab (KEY1 in run_io_test_screen) -----------------
+// The app's io_test loop calls io_test_camera_start() on KEY1, pumps its "Capturing…"
+// hold (each lvgl_pump runs camera_engine_pump_consume, so frames flow into the io_test
+// plane via the redirect above), then io_test_camera_stop() — which freezes the last
+// frame in the plane. SS_CAMERA_ENGINE-only (needs the native libcamera engine).
+PyObject *py_io_test_camera_start(PyObject *self, PyObject *args) {
+    (void)self;
+    (void)args;
+#ifdef SS_CAMERA_ENGINE
+    // Requires an active io_test_screen — its plane is the redirect target.
+    int w = 0, h = 0;
+    io_test_get_camera_plane_dims(&w, &h);
+    if (w <= 0 || h <= 0) {
+        PyErr_SetString(PyExc_RuntimeError, "io_test_camera_start: no active io_test_screen");
+        return nullptr;
+    }
+    s_io_test_last_frame.clear();  // fresh grab: discard any prior still
+    s_io_test_grab = true;
+    int err = camera_engine_start();
+    if (err != CAMERA_OK) {
+        s_io_test_grab = false;
+        PyErr_SetObject(PyExc_OSError, Py_BuildValue("(is)", err, camera_error_str(err)));
+        return nullptr;
+    }
+    Py_RETURN_NONE;
+#else
+    PyErr_SetString(PyExc_RuntimeError, "io_test_camera_start: camera engine not built");
+    return nullptr;
+#endif
+}
+
+// io_test_camera_stop() -> None. Stop the engine (the last frame stays frozen in the
+// io_test plane) + clear the redirect. Idempotent — safe if start() failed or was skipped.
+PyObject *py_io_test_camera_stop(PyObject *self, PyObject *args) {
+    (void)self;
+    (void)args;
+#ifdef SS_CAMERA_ENGINE
+    camera_engine_stop();
+#endif
+    s_io_test_grab = false;
+    // Reveal ONLY the final captured frame — a single still, no live video. Empty if the
+    // engine delivered nothing (camera failed to start/produce a frame); then leave the
+    // plane dark. Sizing/no-active-screen are guarded inside io_test_blit_camera.
+    if (!s_io_test_last_frame.empty()) {
+        io_test_blit_camera(s_io_test_last_frame.data(), s_io_test_last_frame.size());
+        s_io_test_last_frame.clear();
+    }
+    Py_RETURN_NONE;
 }
 
 // --- Frame push -------------------------------------------------------------

@@ -481,6 +481,42 @@ def test_qr_density_result_event():
     assert mod.poll_for_result() is None
 
 
+def test_aux_key_result_event():
+    # io_test_screen forwards KEY1/KEY2/KEY3 via the on_aux_key host hook; the strong
+    # override bridges each to an ("aux_key", 0, key_name) result. That is the reserved
+    # kind 4 in the shared poll-queue numbering (Pi-only consumer today). _debug_emit_aux_key
+    # drives it directly since the real call site (io_test's keypad handler) needs hardware
+    # keys. Queue plumbing only — no runtime needed.
+    mod = _native_or_skip()
+    mod.clear_result_queue()
+
+    for key in ("KEY1", "KEY2", "KEY3"):
+        mod._debug_emit_aux_key(key)
+    assert mod.poll_for_result() == ("aux_key", 0, "KEY1")
+    assert mod.poll_for_result() == ("aux_key", 0, "KEY2")
+    assert mod.poll_for_result() == ("aux_key", 0, "KEY3")
+    assert mod.poll_for_result() is None
+
+
+def test_io_test_set_capture_state():
+    # io_test_set_capture_state reflects the host's async camera grab into a live
+    # io_test_screen. Valid states 0/1/2 are safe no-ops when no io_test_screen is
+    # active; out-of-range raises ValueError (checked before any screen state is touched).
+    mod = _native_or_skip()
+    mod.lvgl_init(hor_res=240, ver_res=240)
+
+    # No active io_test_screen -> safe no-op for every valid state.
+    for state in (0, 1, 2):
+        assert mod.io_test_set_capture_state(state) is None
+
+    # Out-of-range rejected with ValueError.
+    for bad in (-1, 3, 99):
+        with pytest.raises(ValueError):
+            mod.io_test_set_capture_state(bad)
+
+    mod.lvgl_shutdown()
+
+
 def test_display_size_reports_active_profile():
     # display_size() returns the active display profile dims. Before lvgl_init()
     # the profile is unset — it raises rather than abort()ing the process (same
