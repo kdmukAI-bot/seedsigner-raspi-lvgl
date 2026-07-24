@@ -79,6 +79,7 @@ by testing the sentinel index **before** its generic body-button branch.
 | `save_screen()` / `restore_screen()` | Preserve/restore the active screen + input group across a host-driven overlay. |
 | `clear_screen()` | Load an all-black screen. |
 | `set_screensaver_timeout(ms)` | Idle ms before the native screensaver overlay activates; 0 disables. Per-screen opt-out via cfg `allow_screensaver: false`. |
+| `get_inactive_time_ms()` | Milliseconds since the last input activity (any keypad press resets it toward 0). Native replacement for `HardwareButtons.has_any_input()` polling — a small value means the user just interacted. The activity clock only advances while LVGL is pumped, so a caller polling it must keep a pump running. Raises `RuntimeError` before `lvgl_init()`. |
 | `set_camera_rotation(degrees)` | Sticky rotation for **both** camera flows (scan + entropy). Pass the app's raw setting (0/90/180/270) unmodified — the sensor-mount base is composed natively, so do **not** pre-add it. Rotation is clockwise. Sampled at each `start()`, so it applies to the next camera session, not mid-stream. `ValueError` if not a multiple of 90. Pi-only (the MicroPython build does not implement it). |
 | `native_display_test_pattern()` / `native_debug_config(...)` | Hardware bring-up helpers. |
 | `_debug_last_path()` / `_debug_emit_result(label, index)` / `_debug_emit_qr_density(px_per_module)` | Test helpers: build-path breadcrumb; inject a fake button event; fire the `on_qr_density` callback into the queue. |
