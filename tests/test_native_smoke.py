@@ -538,6 +538,32 @@ def test_display_size_reports_active_profile():
     mod.lvgl_shutdown()
 
 
+def test_get_inactive_time_ms_reports_idle():
+    # get_inactive_time_ms() exposes the LVGL display activity clock (ms since the last
+    # input). It's the native replacement for the HardwareButtons.has_any_input() poll
+    # behind the toast pre-show activation-delay cancel (APP-7): a small value means the
+    # user just interacted. Before lvgl_init() there is no display/runtime, so it raises
+    # rather than abort()ing the process (same guard as display_size()).
+    mod = _native_or_skip()
+
+    mod.lvgl_shutdown()  # force uninited state regardless of prior test leftovers
+    with pytest.raises(RuntimeError):
+        mod.get_inactive_time_ms()
+
+    mod.lvgl_init(hor_res=240, ver_res=240)
+
+    # A non-negative int, and — with no input, only pump-driven ticks — it grows
+    # monotonically across pumps (a keypad press would reset it toward 0, but nothing
+    # presses here).
+    mod.lvgl_pump(20, 5)
+    first = mod.get_inactive_time_ms()
+    assert isinstance(first, int) and first >= 0
+    mod.lvgl_pump(20, 5)
+    assert mod.get_inactive_time_ms() >= first
+
+    mod.lvgl_shutdown()
+
+
 def test_camera_preview_screen_build_and_frame_push():
     # Live camera-preview scan surface: a full-screen RGB565 image sink + the
     # portable overlay chrome. The host builds it, pushes RGB565 frames, advances

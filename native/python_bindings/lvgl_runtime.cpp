@@ -446,6 +446,35 @@ PyObject *py_set_screensaver_timeout(PyObject *self, PyObject *args) {
     Py_RETURN_NONE;
 }
 
+// get_inactive_time_ms() -> int
+//
+// Milliseconds since the last input activity on the LVGL display. Any keypad press
+// updates the display's activity clock (lv_indev sets last_activity_time = lv_tick_get()
+// on a PRESSED read; lv_display_get_inactive_time returns lv_tick_elaps of it), so this
+// is the native stand-in for the app's HardwareButtons.has_any_input() poll — a small
+// value means the user just interacted. The toast pre-show activation delay
+// (gui/toast.py) polls it to cancel while the user is still pressing keys, which retires
+// the last non-screen HardwareButtons consumer (APP-7).
+//
+// The activity clock only advances while LVGL is pumped — the keypad indev is read
+// inside lv_timer_handler() (lvgl_pump). A caller polling this must have a pump running
+// for presses to register; with none the value only ever grows. Reads the same single
+// display the runtime owns (s_disp); lv_display_get_inactive_time tolerates a NULL disp
+// (returns the min over all displays). Requires the runtime — raises RuntimeError
+// before lvgl_init().
+PyObject *py_get_inactive_time_ms(PyObject *self, PyObject *args) {
+    (void)self;
+    (void)args;
+    try {
+        require_lvgl_runtime();
+    } catch (const std::exception &e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+    uint32_t ms = lv_display_get_inactive_time(s_disp);
+    return PyLong_FromUnsignedLong(static_cast<unsigned long>(ms));
+}
+
 // set_camera_rotation(degrees) -> None
 //
 // Sticky device setting applied to BOTH camera flows (scan and entropy). Takes the
